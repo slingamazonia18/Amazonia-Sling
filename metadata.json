@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Veterinaria Amazonia - Sistema Integrado",
+  "description": "Una plataforma integral para Veterinaria Amazonia que gestiona tres áreas críticas: Petshop, Mateando (Yerba) y Consultorio Clínico, con control de inventario, ventas y turnos.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
