@@ -24,9 +24,10 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
     setLoading(true);
     try {
       const { data, error } = await supabase.from('appointments').select('*').order('time', { ascending: true });
+      if (error) throw error;
       if (data) setAppointments(data);
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error("Error al buscar turnos:", err.message);
     } finally {
       setLoading(false);
     }
@@ -43,19 +44,24 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
       type: formData.get('type')
     };
 
-    const { error } = await supabase.from('appointments').insert(newAppt);
-    if (!error) {
-      setShowModal(false);
-      fetchAppointments();
-    } else {
-      alert("Error al agendar turno");
+    try {
+      const { error } = await supabase.from('appointments').insert(newAppt);
+      if (error) {
+        alert("Error de Supabase: " + error.message);
+      } else {
+        setShowModal(false);
+        fetchAppointments();
+      }
+    } catch (err: any) {
+      alert("Error inesperado: " + err.message);
     }
   };
 
   const deleteAppointment = async (id: string) => {
     if (confirm("¿Eliminar este turno?")) {
-      await supabase.from('appointments').delete().eq('id', id);
-      fetchAppointments();
+      const { error } = await supabase.from('appointments').delete().eq('id', id);
+      if (error) alert(error.message);
+      else fetchAppointments();
     }
   };
 
@@ -76,7 +82,7 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
           <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-bold text-slate-800">Nuevo Turno</h2>
-              <button onClick={() => setShowModal(false)} className="p-2 hover:bg-slate-100 rounded-full"><X /></button>
+              <button onClick={() => setShowModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-all"><X /></button>
             </div>
             <form onSubmit={handleCreateAppointment} className="space-y-4">
               <div>

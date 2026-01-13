@@ -22,7 +22,6 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   
-  // Modales
   const [showProductModal, setShowProductModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [showSupplierModal, setShowSupplierModal] = useState(false);
@@ -43,15 +42,19 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: prods } = await supabase.from('products').select('*').eq('category', type);
-      const { data: sups } = await supabase.from('suppliers').select('*').eq('category', type);
-      const { data: sales } = await supabase.from('sales').select('*, sale_items(*)').eq('system_type', type).order('created_at', { ascending: false });
+      const { data: prods, error: pErr } = await supabase.from('products').select('*').eq('category', type);
+      const { data: sups, error: sErr } = await supabase.from('suppliers').select('*').eq('category', type);
+      const { data: sales, error: slErr } = await supabase.from('sales').select('*, sale_items(*)').eq('system_type', type).order('created_at', { ascending: false });
+
+      if (pErr) console.error("Error productos:", pErr);
+      if (sErr) console.error("Error proveedores:", sErr);
+      if (slErr) console.error("Error ventas:", slErr);
 
       if (prods) setProducts(prods);
       if (sups) setSuppliers(sups);
       if (sales) setSalesHistory(sales);
     } catch (error) {
-      console.error("Error fetching data:", error);
+      console.error("Error general fetching data:", error);
     } finally {
       setLoading(false);
     }
@@ -72,16 +75,22 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     };
 
     try {
+      let error;
       if (editingProduct) {
-        await supabase.from('products').update(productData).eq('id', editingProduct.id);
+        ({ error } = await supabase.from('products').update(productData).eq('id', editingProduct.id));
       } else {
-        await supabase.from('products').insert(productData);
+        ({ error } = await supabase.from('products').insert(productData));
       }
-      setShowProductModal(false);
-      setEditingProduct(null);
-      fetchData();
-    } catch (err) {
-      alert("Error al guardar producto");
+      
+      if (error) {
+        alert("Error Supabase: " + error.message);
+      } else {
+        setShowProductModal(false);
+        setEditingProduct(null);
+        fetchData();
+      }
+    } catch (err: any) {
+      alert("Error al guardar: " + err.message);
     }
   };
 
@@ -95,30 +104,38 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     };
 
     try {
+      let error;
       if (editingSupplier) {
-        await supabase.from('suppliers').update(supplierData).eq('id', editingSupplier.id);
+        ({ error } = await supabase.from('suppliers').update(supplierData).eq('id', editingSupplier.id));
       } else {
-        await supabase.from('suppliers').insert(supplierData);
+        ({ error } = await supabase.from('suppliers').insert(supplierData));
       }
-      setShowSupplierModal(false);
-      setEditingSupplier(null);
-      fetchData();
-    } catch (err) {
-      alert("Error al guardar proveedor");
+
+      if (error) {
+        alert("Error Supabase: " + error.message);
+      } else {
+        setShowSupplierModal(false);
+        setEditingSupplier(null);
+        fetchData();
+      }
+    } catch (err: any) {
+      alert("Error al guardar: " + err.message);
     }
   };
 
   const deleteProduct = async (id: string) => {
     if (confirm("¿Estás seguro de eliminar este producto?")) {
-      await supabase.from('products').delete().eq('id', id);
-      fetchData();
+      const { error } = await supabase.from('products').delete().eq('id', id);
+      if (error) alert(error.message);
+      else fetchData();
     }
   };
 
   const deleteSupplier = async (id: string) => {
     if (confirm("¿Estás seguro de eliminar este proveedor?")) {
-      await supabase.from('suppliers').delete().eq('id', id);
-      fetchData();
+      const { error } = await supabase.from('suppliers').delete().eq('id', id);
+      if (error) alert(error.message);
+      else fetchData();
     }
   };
 
@@ -159,7 +176,8 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
         subtotal: Number(c.product.price) * c.qty
       }));
 
-      await supabase.from('sale_items').insert(items);
+      const { error: itemError } = await supabase.from('sale_items').insert(items);
+      if (itemError) throw itemError;
       
       for (const item of cart) {
         await supabase.from('products').update({ stock: item.product.stock - item.qty }).eq('id', item.product.id);
@@ -168,8 +186,8 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       setCart([]);
       fetchData();
       alert(`Venta exitosa!`);
-    } catch (error) {
-      alert("Error al procesar la venta");
+    } catch (error: any) {
+      alert("Error al procesar venta: " + (error.message || error));
     } finally {
       setLoading(false);
     }
@@ -217,7 +235,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                 <label className="text-xs font-bold text-slate-400">Precio de Venta ($)</label>
                 <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price || 0} className="w-full p-3 bg-slate-900 text-white border rounded-xl" />
               </div>
-              <button type="submit" className={`col-span-2 ${colors.primary} text-white py-4 rounded-xl font-bold mt-4 shadow-lg`}>
+              <button type="submit" className={`col-span-2 ${colors.primary} text-white py-4 rounded-xl font-bold mt-4 shadow-lg transition-all active:scale-95`}>
                 Guardar Producto
               </button>
             </form>
@@ -242,7 +260,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                 <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">WhatsApp (incluir código de país)</label>
                 <input name="whatsapp" placeholder="Ej: 54911..." defaultValue={editingSupplier?.whatsapp} required className="w-full p-3 bg-slate-50 border rounded-xl" />
               </div>
-              <button type="submit" className={`w-full ${colors.primary} text-white py-4 rounded-xl font-bold mt-4 shadow-lg`}>
+              <button type="submit" className={`w-full ${colors.primary} text-white py-4 rounded-xl font-bold mt-4 shadow-lg transition-all active:scale-95`}>
                 Guardar Proveedor
               </button>
             </form>
@@ -393,13 +411,13 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <h2 className="text-2xl font-black text-slate-800">Directorio de Proveedores</h2>
-              <button onClick={() => { setEditingSupplier(null); setShowSupplierModal(true); }} className={`${colors.primary} text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2`}>
+              <button onClick={() => { setEditingSupplier(null); setShowSupplierModal(true); }} className={`${colors.primary} text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 transition-all active:scale-95`}>
                 <Plus size={20} /> Nuevo Proveedor
               </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {suppliers.map(s => (
-                <div key={s.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center text-center group">
+                <div key={s.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center text-center group transition-all hover:shadow-md">
                   <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
                     <Users className="text-slate-400" />
                   </div>

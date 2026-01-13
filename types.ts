@@ -6,7 +6,7 @@ export interface Product {
   name: string;
   barcode: string;
   stock: number;
-  minStock: number;
+  min_stock: number;
   cost: number;
   margin: number;
   price: number;
@@ -22,18 +22,27 @@ export interface Supplier {
 
 export interface Sale {
   id: string;
-  date: string;
-  items: { productId: string; name: string; quantity: number; subtotal: number }[];
+  created_at: string;
   total: number;
-  paymentMethod: 'QR' | 'TRANSFERENCIA' | 'CREDITO' | 'DEBITO' | 'EFECTIVO';
-  type: 'FACTURA' | 'COMPROBANTE';
-  system: 'PETSHOP' | 'MATEANDO';
+  payment_method: string;
+  billing_type: 'FACTURA' | 'COMPROBANTE';
+  system_type: 'PETSHOP' | 'MATEANDO';
+  sale_items?: SaleItem[];
+}
+
+export interface SaleItem {
+  id: string;
+  sale_id: string;
+  product_id: string;
+  name: string;
+  quantity: number;
+  subtotal: number;
 }
 
 export interface Appointment {
   id: string;
-  clientName: string;
-  petName: string;
+  client_name: string;
+  pet_name: string;
   date: string;
   time: string;
   type: 'CONSULTA' | 'VACUNA' | 'CIRUGIA' | 'CONTROL';
