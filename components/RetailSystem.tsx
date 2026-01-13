@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, Package, ShoppingCart, Users, TrendingUp, Search, Plus, 
-  Trash2, Printer, FileText, PhoneCall, Save, Barcode, ShoppingBag, Leaf, Loader2, X, CreditCard, QrCode, Banknote, RefreshCcw, Filter, AlertTriangle, Percent
+  Trash2, Printer, FileText, PhoneCall, Save, Barcode, ShoppingBag, Leaf, Loader2, X, CreditCard, QrCode, Banknote, RefreshCcw, Filter, AlertTriangle, Percent, Minus, PlusCircle
 } from 'lucide-react';
 import { Product, Supplier, Sale } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -36,7 +36,10 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('EFECTIVO');
   const [selectedBillingType, setSelectedBillingType] = useState<'FACTURA' | 'COMPROBANTE'>('COMPROBANTE');
-  const [adjustmentPercent, setAdjustmentPercent] = useState<string>('0'); // Descuento (-) o Recargo (+)
+  
+  // Nuevo estado para el tipo de ajuste y el porcentaje (sin signo)
+  const [adjustmentType, setAdjustmentType] = useState<'DESCUENTO' | 'RECARGO'>('DESCUENTO');
+  const [adjustmentPercent, setAdjustmentPercent] = useState<string>('0'); 
 
   const colors = type === 'PETSHOP' ? {
     primary: 'bg-amber-500', hover: 'hover:bg-amber-600', text: 'text-amber-600',
@@ -139,7 +142,6 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     if (confirm("¿Borrar producto y TODO su historial de ventas asociado? Esta acción no se puede deshacer.")) {
       setLoading(true);
       try {
-        // Borramos primero los items de venta para evitar error de integridad
         await supabase.from('sale_items').delete().eq('product_id', id);
         const { error } = await supabase.from('products').delete().eq('id', id);
         if (error) throw error;
@@ -191,7 +193,8 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const handleCheckout = async () => {
     const subtotal = cart.reduce((acc, curr) => acc + (Number(curr.product.price) * curr.qty), 0);
     const adjNum = parseFloat(adjustmentPercent.replace(',', '.')) || 0;
-    const total = subtotal * (1 + adjNum / 100);
+    const finalAdj = adjustmentType === 'DESCUENTO' ? -Math.abs(adjNum) : Math.abs(adjNum);
+    const total = subtotal * (1 + finalAdj / 100);
 
     const outOfStock = cart.filter(item => item.qty > item.product.stock);
     if (outOfStock.length > 0) {
@@ -214,7 +217,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
         product_id: c.product.id,
         name: c.product.name,
         quantity: c.qty,
-        subtotal: (Number(c.product.price) * c.qty) * (1 + adjNum / 100)
+        subtotal: (Number(c.product.price) * c.qty) * (1 + finalAdj / 100)
       }));
       await supabase.from('sale_items').insert(items);
       
@@ -246,15 +249,17 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     });
   };
 
-  const handleNumericInput = (value: string, setter: (val: string) => void) => {
-    const sanitized = value.replace(/[^0-9,.-]/g, '');
+  const handleNumericInput = (value: string, setter: (val: string) => void, allowNegative = true) => {
+    const regex = allowNegative ? /[^0-9,.-]/g : /[^0-9,.]/g;
+    const sanitized = value.replace(regex, '');
     const parts = sanitized.split(/[.,]/);
     if (parts.length > 2) return;
     setter(sanitized);
   };
 
   const subtotalCart = cart.reduce((a, c) => a + (Number(c.product.price) * c.qty), 0);
-  const adjValue = parseFloat(adjustmentPercent.replace(',', '.')) || 0;
+  const rawAdj = parseFloat(adjustmentPercent.replace(',', '.')) || 0;
+  const adjValue = adjustmentType === 'DESCUENTO' ? -Math.abs(rawAdj) : Math.abs(rawAdj);
   const totalFinal = subtotalCart * (1 + adjValue / 100);
 
   const filteredSales = salesHistory.filter(sale => {
@@ -271,35 +276,76 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
           <div className="bg-white rounded-[3rem] w-full max-w-lg p-10 shadow-2xl">
             <div className="flex justify-between items-center mb-8">
               <h2 className="text-3xl font-black text-slate-800 tracking-tighter">Finalizar Venta</h2>
-              <button onClick={() => setShowCheckoutModal(false)} className="p-2 hover:bg-slate-100 rounded-full"><X /></button>
+              <button onClick={() => setShowCheckoutModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-all"><X /></button>
             </div>
+            
             <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-3">
-                {['EFECTIVO', 'TRANSFERENCIA', 'QR', 'TARJETA'].map(m => (
-                  <button key={m} onClick={() => setSelectedPaymentMethod(m)} className={`p-4 rounded-2xl border-2 font-bold transition-all ${selectedPaymentMethod === m ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'}`}>{m}</button>
-                ))}
-              </div>
-
-              <div className="p-6 bg-slate-50 rounded-3xl border border-dashed border-slate-200">
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Descuento (-) o Recargo (+) %</label>
-                  <Percent size={14} className="text-slate-300" />
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Medio de Pago</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {['EFECTIVO', 'TRANSFERENCIA', 'QR', 'TARJETA'].map(m => (
+                    <button key={m} onClick={() => setSelectedPaymentMethod(m)} className={`p-4 rounded-2xl border-2 font-bold transition-all ${selectedPaymentMethod === m ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'}`}>{m}</button>
+                  ))}
                 </div>
-                <input 
-                  type="text" 
-                  value={adjustmentPercent} 
-                  onChange={(e) => handleNumericInput(e.target.value, setAdjustmentPercent)} 
-                  className="w-full text-center text-3xl font-black bg-transparent outline-none text-slate-800"
-                  placeholder="0"
-                />
-                <p className="text-[9px] text-center text-slate-400 mt-2 font-bold italic">Ej: -10 para descuento, 10 para recargo</p>
               </div>
 
-              <div className="pt-6 border-t flex flex-col gap-4">
-                <div className="flex justify-between items-center text-sm font-bold text-slate-400"><span>Subtotal</span><span>${subtotalCart.toFixed(2)}</span></div>
-                <div className="flex justify-between items-center text-4xl font-black text-slate-900 tracking-tighter"><span>TOTAL</span><span>${totalFinal.toFixed(2)}</span></div>
-                <button onClick={handleCheckout} disabled={loading} className="w-full bg-slate-900 text-white py-6 rounded-3xl font-black text-xl shadow-xl hover:scale-[1.02] transition-all active:scale-95 mt-4">
-                  {loading ? <Loader2 className="animate-spin" /> : 'CONFIRMAR Y COBRAR'}
+              <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-200 relative overflow-hidden">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 block text-center">Ajuste de Precio</label>
+                
+                <div className="flex gap-2 mb-6">
+                  <button 
+                    onClick={() => setAdjustmentType('DESCUENTO')}
+                    className={`flex-1 py-4 rounded-2xl font-black text-xs flex items-center justify-center gap-2 transition-all ${adjustmentType === 'DESCUENTO' ? 'bg-red-500 text-white shadow-lg shadow-red-100' : 'bg-white text-slate-400 border border-slate-100'}`}
+                  >
+                    <Minus size={14} /> DESCUENTO
+                  </button>
+                  <button 
+                    onClick={() => setAdjustmentType('RECARGO')}
+                    className={`flex-1 py-4 rounded-2xl font-black text-xs flex items-center justify-center gap-2 transition-all ${adjustmentType === 'RECARGO' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-100' : 'bg-white text-slate-400 border border-slate-100'}`}
+                  >
+                    <PlusCircle size={14} /> RECARGO
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-center gap-4 relative">
+                  <span className={`text-2xl font-black ${adjustmentType === 'DESCUENTO' ? 'text-red-500' : 'text-emerald-500'}`}>
+                    {adjustmentType === 'DESCUENTO' ? '-' : '+'}
+                  </span>
+                  <input 
+                    type="text" 
+                    inputMode="decimal"
+                    value={adjustmentPercent} 
+                    onChange={(e) => handleNumericInput(e.target.value, setAdjustmentPercent, false)} 
+                    className="w-32 text-center text-5xl font-black bg-transparent outline-none text-slate-800 placeholder:text-slate-200"
+                    placeholder="0"
+                  />
+                  <span className="text-2xl font-black text-slate-300">%</span>
+                </div>
+                
+                <p className="text-[10px] text-center text-slate-400 mt-4 font-bold">Ingrese solo el número del porcentaje</p>
+              </div>
+
+              <div className="pt-6 border-t border-slate-100 flex flex-col gap-4">
+                <div className="flex justify-between items-center text-sm font-bold text-slate-400">
+                  <span>Subtotal</span>
+                  <span>${subtotalCart.toFixed(2)}</span>
+                </div>
+                {adjValue !== 0 && (
+                  <div className={`flex justify-between items-center text-sm font-bold ${adjustmentType === 'DESCUENTO' ? 'text-red-500' : 'text-emerald-500'}`}>
+                    <span>{adjustmentType === 'DESCUENTO' ? 'Descuento' : 'Recargo'} ({Math.abs(rawAdj)}%)</span>
+                    <span>{adjustmentType === 'DESCUENTO' ? '-' : '+'}${Math.abs(totalFinal - subtotalCart).toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center text-5xl font-black text-slate-900 tracking-tighter mt-2">
+                  <span>TOTAL</span>
+                  <span>${totalFinal.toFixed(2)}</span>
+                </div>
+                <button 
+                  onClick={handleCheckout} 
+                  disabled={loading} 
+                  className="w-full bg-slate-900 text-white py-7 rounded-[2rem] font-black text-xl shadow-2xl hover:scale-[1.01] transition-all active:scale-95 mt-6"
+                >
+                  {loading ? <Loader2 className="animate-spin mx-auto" /> : 'CONFIRMAR Y COBRAR'}
                 </button>
               </div>
             </div>
@@ -356,11 +402,11 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
               <div className="col-span-2 grid grid-cols-3 gap-4 p-4 bg-slate-50 rounded-2xl border">
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase">Costo ($)</label>
-                  <input type="text" value={formCost} onChange={(e) => handleNumericInput(e.target.value, setFormCost)} required className="w-full p-2 bg-white border rounded-lg font-bold" />
+                  <input type="text" value={formCost} onChange={(e) => handleNumericInput(e.target.value, setFormCost, false)} required className="w-full p-2 bg-white border rounded-lg font-bold" />
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase">Margen (%)</label>
-                  <input type="text" value={formMargin} onChange={(e) => handleNumericInput(e.target.value, setFormMargin)} required className="w-full p-2 bg-white border rounded-lg font-bold" />
+                  <input type="text" value={formMargin} onChange={(e) => handleNumericInput(e.target.value, setFormMargin, false)} required className="w-full p-2 bg-white border rounded-lg font-bold" />
                 </div>
                 <div className="flex flex-col justify-center">
                   <label className="text-[10px] font-black text-slate-400 uppercase">Venta Final</label>
