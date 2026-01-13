@@ -15,6 +15,7 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [viewMode, setViewMode] = useState<'DÍA' | 'SEMANA'>('DÍA');
 
   useEffect(() => {
     fetchAppointments();
@@ -23,7 +24,7 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
   const fetchAppointments = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.from('appointments').select('*').order('time', { ascending: true });
+      const { data, error } = await supabase.from('appointments').select('*').order('date', { ascending: true }).order('time', { ascending: true });
       if (error) throw error;
       if (data) setAppointments(data);
     } catch (err: any) {
@@ -46,14 +47,11 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
 
     try {
       const { error } = await supabase.from('appointments').insert(newAppt);
-      if (error) {
-        alert("Error de Supabase: " + error.message);
-      } else {
-        setShowModal(false);
-        fetchAppointments();
-      }
+      if (error) throw error;
+      setShowModal(false);
+      fetchAppointments();
     } catch (err: any) {
-      alert("Error inesperado: " + err.message);
+      alert("Error: " + err.message);
     }
   };
 
@@ -72,7 +70,33 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
     'CONTROL': 'bg-amber-100 text-amber-700 border-amber-200'
   };
 
-  const filteredAppointments = appointments.filter(a => a.date === selectedDate);
+  // Lógica para filtrar por día o semana
+  const getFilteredAppointments = () => {
+    if (viewMode === 'DÍA') {
+      return appointments.filter(a => a.date === selectedDate);
+    } else {
+      // Ver los próximos 7 días desde la fecha seleccionada
+      const startDate = new Date(selectedDate);
+      const endDate = new Date(selectedDate);
+      endDate.setDate(startDate.getDate() + 7);
+      
+      return appointments.filter(a => {
+        const d = new Date(a.date);
+        return d >= startDate && d < endDate;
+      });
+    }
+  };
+
+  const filtered = getFilteredAppointments();
+
+  // Agrupar por fecha para la vista de semana
+  const grouped = filtered.reduce((acc: any, appt) => {
+    if (!acc[appt.date]) acc[appt.date] = [];
+    acc[appt.date].push(appt);
+    return acc;
+  }, {});
+
+  const sortedDates = Object.keys(grouped).sort();
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col relative">
@@ -134,15 +158,28 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
             <div className="flex justify-between items-center mb-6">
               <h2 className="font-black text-slate-800 tracking-tight">Calendario</h2>
               <div className="flex gap-1">
-                <button className="p-1 hover:bg-slate-100 rounded-lg"><ChevronLeft size={16}/></button>
-                <button className="p-1 hover:bg-slate-100 rounded-lg"><ChevronRight size={16}/></button>
+                <button 
+                  onClick={() => {
+                    const d = new Date(selectedDate);
+                    d.setDate(d.getDate() - 1);
+                    setSelectedDate(d.toISOString().split('T')[0]);
+                  }}
+                  className="p-1 hover:bg-slate-100 rounded-lg"><ChevronLeft size={16}/></button>
+                <button 
+                  onClick={() => {
+                    const d = new Date(selectedDate);
+                    d.setDate(d.getDate() + 1);
+                    setSelectedDate(d.toISOString().split('T')[0]);
+                  }}
+                  className="p-1 hover:bg-slate-100 rounded-lg"><ChevronRight size={16}/></button>
               </div>
             </div>
             <div className="grid grid-cols-7 gap-1 text-center mb-4">
               {['D', 'L', 'M', 'M', 'J', 'V', 'S'].map(d => <span key={d} className="text-[10px] font-black text-slate-300">{d}</span>)}
             </div>
             <div className="grid grid-cols-7 gap-2">
-              {Array.from({ length: 30 }).map((_, i) => {
+              {/* Calendario Dinámico Simple para el mes actual */}
+              {Array.from({ length: 31 }).map((_, i) => {
                 const day = i + 1;
                 const dStr = `2024-11-${day.toString().padStart(2, '0')}`;
                 const active = selectedDate === dStr;
@@ -168,67 +205,60 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
         </div>
 
         <div className="lg:col-span-3 space-y-4">
-          <div className="bg-white p-6 rounded-[2rem] border border-slate-200 flex justify-between items-center shadow-sm">
+          <div className="bg-white p-6 rounded-[2rem] border border-slate-200 flex flex-col md:flex-row gap-4 justify-between items-center shadow-sm">
             <div>
-              <h2 className="text-2xl font-black text-slate-800 tracking-tight">Agenda del Día</h2>
-              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">{new Date(selectedDate).toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+              <h2 className="text-2xl font-black text-slate-800 tracking-tight">
+                {viewMode === 'DÍA' ? 'Agenda del Día' : 'Agenda de la Semana'}
+              </h2>
+              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">
+                {new Date(selectedDate).toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+              </p>
             </div>
             <div className="flex bg-slate-100 p-1 rounded-2xl">
-              <button className="px-6 py-2 bg-white rounded-xl shadow-sm font-black text-xs text-slate-800">DÍA</button>
-              <button className="px-6 py-2 rounded-xl font-black text-xs text-slate-400 hover:text-slate-600">SEMANA</button>
+              <button 
+                onClick={() => setViewMode('DÍA')}
+                className={`px-6 py-2 rounded-xl shadow-sm font-black text-xs transition-all ${viewMode === 'DÍA' ? 'bg-white text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                DÍA
+              </button>
+              <button 
+                onClick={() => setViewMode('SEMANA')}
+                className={`px-6 py-2 rounded-xl font-black text-xs transition-all ${viewMode === 'SEMANA' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                SEMANA
+              </button>
             </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-8">
             {loading ? (
               <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[2rem] border border-dashed">
                 <Loader2 className="animate-spin text-sky-500 mb-4" size={40} />
                 <span className="text-slate-400 font-bold">Cargando agenda...</span>
               </div>
-            ) : filteredAppointments.length === 0 ? (
+            ) : filtered.length === 0 ? (
               <div className="bg-white p-20 rounded-[2.5rem] border border-dashed border-slate-200 text-center text-slate-400">
                 <CalendarIcon className="mx-auto mb-4 opacity-10" size={60} />
-                <p className="text-lg font-bold">No hay turnos para este día</p>
+                <p className="text-lg font-bold">No hay turnos para {viewMode === 'DÍA' ? 'este día' : 'esta semana'}</p>
                 <button onClick={() => setShowModal(true)} className="mt-4 text-sky-500 font-bold hover:underline">Agendar el primero</button>
               </div>
+            ) : viewMode === 'DÍA' ? (
+              filtered.map(appt => (
+                <AppointmentCard key={appt.id} appt={appt} onDelete={deleteAppointment} typeColors={typeColors} />
+              ))
             ) : (
-              filteredAppointments.map(appt => (
-                <div key={appt.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 flex items-center gap-6 group hover:shadow-xl hover:scale-[1.01] transition-all duration-300">
-                  <div className="flex flex-col items-center min-w-[100px] border-r border-slate-100 pr-6">
-                    <Clock size={16} className="text-sky-400 mb-1" />
-                    <span className="font-black text-2xl text-slate-800">{appt.time.slice(0,5)}</span>
+              sortedDates.map(date => (
+                <div key={date} className="space-y-3">
+                  <div className="flex items-center gap-4 px-4">
+                    <span className="h-px bg-slate-200 flex-1"></span>
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">
+                      {new Date(date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' })}
+                    </h3>
+                    <span className="h-px bg-slate-200 flex-1"></span>
                   </div>
-                  
-                  <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400">
-                        <User size={20} />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Propietario</p>
-                        <p className="font-bold text-slate-800">{appt.client_name}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-sky-50 rounded-2xl flex items-center justify-center text-sky-500">
-                        <Dog size={20} />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Paciente</p>
-                        <p className="font-bold text-slate-800">{appt.pet_name}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className={`px-5 py-2.5 rounded-2xl text-[10px] font-black border uppercase tracking-[0.15em] hidden sm:block ${typeColors[appt.type] || 'bg-slate-100'}`}>
-                    {appt.type}
-                  </div>
-                  
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-                    <button onClick={() => deleteAppointment(appt.id)} className="p-3 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
-                      <Trash2 size={20} />
-                    </button>
-                  </div>
+                  {grouped[date].map((appt: any) => (
+                    <AppointmentCard key={appt.id} appt={appt} onDelete={deleteAppointment} typeColors={typeColors} />
+                  ))}
                 </div>
               ))
             )}
@@ -238,5 +268,45 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
     </div>
   );
 };
+
+const AppointmentCard = ({ appt, onDelete, typeColors }: any) => (
+  <div className="bg-white p-6 rounded-[2rem] border border-slate-100 flex items-center gap-6 group hover:shadow-xl hover:scale-[1.01] transition-all duration-300">
+    <div className="flex flex-col items-center min-w-[100px] border-r border-slate-100 pr-6">
+      <Clock size={16} className="text-sky-400 mb-1" />
+      <span className="font-black text-2xl text-slate-800">{appt.time.slice(0,5)}</span>
+    </div>
+    
+    <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="flex items-center gap-4">
+        <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400">
+          <User size={20} />
+        </div>
+        <div>
+          <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Propietario</p>
+          <p className="font-bold text-slate-800">{appt.client_name}</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-4">
+        <div className="w-12 h-12 bg-sky-50 rounded-2xl flex items-center justify-center text-sky-500">
+          <Dog size={20} />
+        </div>
+        <div>
+          <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Paciente</p>
+          <p className="font-bold text-slate-800">{appt.pet_name}</p>
+        </div>
+      </div>
+    </div>
+
+    <div className={`px-5 py-2.5 rounded-2xl text-[10px] font-black border uppercase tracking-[0.15em] hidden sm:block ${typeColors[appt.type] || 'bg-slate-100'}`}>
+      {appt.type}
+    </div>
+    
+    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+      <button onClick={() => onDelete(appt.id)} className="p-3 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+        <Trash2 size={20} />
+      </button>
+    </div>
+  </div>
+);
 
 export default ClinicSystem;

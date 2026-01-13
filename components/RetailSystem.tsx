@@ -2,11 +2,12 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, Package, ShoppingCart, Users, TrendingUp, Search, Plus, 
-  Trash2, Printer, FileText, PhoneCall, Save, Barcode, ShoppingBag, Leaf, Loader2, X
+  Trash2, Printer, FileText, PhoneCall, Save, Barcode, ShoppingBag, Leaf, Loader2, X, CreditCard, QrCode, Banknote, RefreshCcw
 } from 'lucide-react';
 import { Product, Supplier, Sale } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { supabase } from '../lib/supabase';
+import { jsPDF } from 'jspdf';
 
 interface RetailSystemProps {
   type: 'PETSHOP' | 'MATEANDO';
@@ -26,6 +27,11 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [showSupplierModal, setShowSupplierModal] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<any>(null);
+
+  // Nuevo: Estados para el proceso de cobro
+  const [showCheckoutModal, setShowCheckoutModal] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('EFECTIVO');
+  const [selectedBillingType, setSelectedBillingType] = useState<'FACTURA' | 'COMPROBANTE'>('COMPROBANTE');
 
   const colors = type === 'PETSHOP' ? {
     primary: 'bg-amber-500', hover: 'hover:bg-amber-600', text: 'text-amber-600',
@@ -60,6 +66,70 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     }
   };
 
+  const generatePDF = (saleData: any, items: any[]) => {
+    const doc = new jsPDF();
+    const isFactura = saleData.billing_type === 'FACTURA';
+    const date = new Date(saleData.created_at).toLocaleString();
+
+    // Cabecera
+    doc.setFontSize(22);
+    doc.setTextColor(40);
+    doc.text("VETERINARIA AMAZONIA", 105, 20, { align: 'center' });
+    
+    doc.setFontSize(10);
+    doc.text(isFactura ? "FACTURA ELECTRÓNICA - TIPO B" : "COMPROBANTE DE VENTA (NO VÁLIDO COMO FACTURA)", 105, 30, { align: 'center' });
+    
+    doc.setDrawColor(200);
+    doc.line(10, 35, 200, 35);
+
+    // Datos de la venta
+    doc.setFontSize(10);
+    doc.text(`Fecha: ${date}`, 10, 45);
+    doc.text(`Sistema: ${saleData.system_type}`, 10, 50);
+    doc.text(`Medio de Pago: ${saleData.payment_method}`, 10, 55);
+    doc.text(`ID Venta: ${saleData.id.slice(0, 8)}`, 150, 45);
+
+    // Tabla de items
+    doc.setFont("helvetica", "bold");
+    doc.text("Producto", 10, 70);
+    doc.text("Cant.", 120, 70);
+    doc.text("P. Unit", 150, 70);
+    doc.text("Subtotal", 180, 70);
+    doc.setFont("helvetica", "normal");
+    
+    let y = 78;
+    items.forEach(item => {
+      doc.text(item.name.substring(0, 40), 10, y);
+      doc.text(item.quantity.toString(), 120, y);
+      doc.text(`$${(item.subtotal / item.quantity).toFixed(2)}`, 150, y);
+      doc.text(`$${item.subtotal.toFixed(2)}`, 180, y);
+      y += 8;
+    });
+
+    doc.line(10, y, 200, y);
+    y += 10;
+    
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text(`TOTAL: $${saleData.total.toFixed(2)}`, 180, y, { align: 'right' });
+
+    if (isFactura) {
+      doc.setFontSize(8);
+      doc.text("CAE: 74291837429183", 10, y + 10);
+      doc.text("Vto CAE: 31/12/2024", 10, y + 15);
+      // Simulación de QR AFIP
+      doc.setFillColor(240, 240, 240);
+      doc.rect(10, y + 20, 30, 30, 'F');
+      doc.text("[ QR AFIP ]", 15, y + 38);
+    }
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "italic");
+    doc.text("Gracias por su compra en Amazonia", 105, y + 50, { align: 'center' });
+
+    doc.save(`Amazonia_${isFactura ? 'Factura' : 'Ticket'}_${saleData.id.slice(0,8)}.pdf`);
+  };
+
   const handleSaveProduct = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -82,13 +152,10 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
         ({ error } = await supabase.from('products').insert(productData));
       }
       
-      if (error) {
-        alert("Error Supabase: " + error.message);
-      } else {
-        setShowProductModal(false);
-        setEditingProduct(null);
-        fetchData();
-      }
+      if (error) throw error;
+      setShowProductModal(false);
+      setEditingProduct(null);
+      fetchData();
     } catch (err: any) {
       alert("Error al guardar: " + err.message);
     }
@@ -110,14 +177,10 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       } else {
         ({ error } = await supabase.from('suppliers').insert(supplierData));
       }
-
-      if (error) {
-        alert("Error Supabase: " + error.message);
-      } else {
-        setShowSupplierModal(false);
-        setEditingSupplier(null);
-        fetchData();
-      }
+      if (error) throw error;
+      setShowSupplierModal(false);
+      setEditingSupplier(null);
+      fetchData();
     } catch (err: any) {
       alert("Error al guardar: " + err.message);
     }
@@ -153,7 +216,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
 
   const calculateTotal = () => cart.reduce((acc, curr) => acc + (Number(curr.product.price) * curr.qty), 0);
 
-  const handleCheckout = async (method: string, billingType: string) => {
+  const handleCheckout = async () => {
     const total = calculateTotal();
     if (total === 0) return;
     setLoading(true);
@@ -161,8 +224,8 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     try {
       const { data: sale, error: saleError } = await supabase.from('sales').insert({
         total,
-        payment_method: method,
-        billing_type: billingType,
+        payment_method: selectedPaymentMethod,
+        billing_type: selectedBillingType,
         system_type: type
       }).select().single();
 
@@ -183,9 +246,13 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
         await supabase.from('products').update({ stock: item.product.stock - item.qty }).eq('id', item.product.id);
       }
 
+      // Generar el PDF
+      generatePDF(sale, items);
+
       setCart([]);
+      setShowCheckoutModal(false);
       fetchData();
-      alert(`Venta exitosa!`);
+      alert(`Venta registrada y PDF generado!`);
     } catch (error: any) {
       alert("Error al procesar venta: " + (error.message || error));
     } finally {
@@ -198,6 +265,72 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col relative">
+      {/* Checkout Selection Modal */}
+      {showCheckoutModal && (
+        <div className="fixed inset-0 bg-black/70 z-[70] flex items-center justify-center p-4 backdrop-blur-md">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-10 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-8">
+              <h2 className="text-3xl font-black text-slate-800">Finalizar Venta</h2>
+              <button onClick={() => setShowCheckoutModal(false)} className="p-2 hover:bg-slate-100 rounded-full"><X /></button>
+            </div>
+            
+            <div className="space-y-8">
+              <div>
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-4">1. Medio de Pago</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { id: 'EFECTIVO', icon: <Banknote size={18}/>, label: 'Efectivo' },
+                    { id: 'TRANSFERENCIA', icon: <RefreshCcw size={18}/>, label: 'Transferencia' },
+                    { id: 'QR', icon: <QrCode size={18}/>, label: 'QR / Billetera' },
+                    { id: 'TARJETA', icon: <CreditCard size={18}/>, label: 'Tarjeta' },
+                  ].map(m => (
+                    <button
+                      key={m.id}
+                      onClick={() => setSelectedPaymentMethod(m.id)}
+                      className={`flex items-center gap-3 p-4 rounded-2xl border-2 transition-all font-bold ${selectedPaymentMethod === m.id ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'}`}
+                    >
+                      {m.icon} {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-4">2. Tipo de Documento</label>
+                <div className="flex gap-4">
+                  <button
+                    onClick={() => setSelectedBillingType('COMPROBANTE')}
+                    className={`flex-1 p-5 rounded-2xl border-2 font-black transition-all ${selectedBillingType === 'COMPROBANTE' ? 'border-slate-900 bg-slate-900 text-white shadow-lg' : 'border-slate-100 text-slate-400'}`}
+                  >
+                    Ticket Interno
+                  </button>
+                  <button
+                    onClick={() => setSelectedBillingType('FACTURA')}
+                    className={`flex-1 p-5 rounded-2xl border-2 font-black transition-all ${selectedBillingType === 'FACTURA' ? 'border-blue-600 bg-blue-600 text-white shadow-lg' : 'border-slate-100 text-slate-400'}`}
+                  >
+                    Factura ARCA
+                  </button>
+                </div>
+              </div>
+
+              <div className="pt-6 border-t flex flex-col gap-4">
+                <div className="flex justify-between items-center text-3xl font-black">
+                  <span>TOTAL</span>
+                  <span>${calculateTotal()}</span>
+                </div>
+                <button 
+                  onClick={handleCheckout}
+                  disabled={loading}
+                  className="w-full bg-blue-600 text-white py-6 rounded-[1.5rem] font-black text-xl shadow-xl hover:bg-blue-700 transition-all active:scale-95 flex items-center justify-center gap-3"
+                >
+                  {loading ? <Loader2 className="animate-spin" /> : <><ShoppingCart /> PROCESAR COBRO</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Product Modal */}
       {showProductModal && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
@@ -209,31 +342,31 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
             <form onSubmit={handleSaveProduct} className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
                 <label className="text-xs font-bold text-slate-400">Nombre</label>
-                <input name="name" defaultValue={editingProduct?.name} required className="w-full p-3 bg-slate-50 border rounded-xl" />
+                <input name="name" defaultValue={editingProduct?.name} required className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-400" />
               </div>
               <div>
                 <label className="text-xs font-bold text-slate-400">Cod. Barras</label>
-                <input name="barcode" defaultValue={editingProduct?.barcode} className="w-full p-3 bg-slate-50 border rounded-xl" />
+                <input name="barcode" defaultValue={editingProduct?.barcode} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-400" />
               </div>
               <div>
                 <label className="text-xs font-bold text-slate-400">Stock Actual</label>
-                <input name="stock" type="number" defaultValue={editingProduct?.stock || 0} className="w-full p-3 bg-slate-50 border rounded-xl" />
+                <input name="stock" type="number" defaultValue={editingProduct?.stock || 0} className="w-full p-3 bg-slate-50 border rounded-xl outline-none" />
               </div>
               <div>
                 <label className="text-xs font-bold text-slate-400">Stock Mínimo</label>
-                <input name="min_stock" type="number" defaultValue={editingProduct?.min_stock || 0} className="w-full p-3 bg-slate-50 border rounded-xl" />
+                <input name="min_stock" type="number" defaultValue={editingProduct?.min_stock || 0} className="w-full p-3 bg-slate-50 border rounded-xl outline-none" />
               </div>
               <div>
                 <label className="text-xs font-bold text-slate-400">Costo ($)</label>
-                <input name="cost" type="number" step="0.01" defaultValue={editingProduct?.cost || 0} className="w-full p-3 bg-slate-50 border rounded-xl" />
+                <input name="cost" type="number" step="0.01" defaultValue={editingProduct?.cost || 0} className="w-full p-3 bg-slate-50 border rounded-xl outline-none" />
               </div>
               <div>
                 <label className="text-xs font-bold text-slate-400">Margen (%)</label>
-                <input name="margin" type="number" defaultValue={editingProduct?.margin || 30} className="w-full p-3 bg-slate-50 border rounded-xl" />
+                <input name="margin" type="number" defaultValue={editingProduct?.margin || 30} className="w-full p-3 bg-slate-50 border rounded-xl outline-none" />
               </div>
               <div className="col-span-2">
                 <label className="text-xs font-bold text-slate-400">Precio de Venta ($)</label>
-                <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price || 0} className="w-full p-3 bg-slate-900 text-white border rounded-xl" />
+                <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price || 0} className="w-full p-3 bg-slate-900 text-white border rounded-xl font-bold text-lg" />
               </div>
               <button type="submit" className={`col-span-2 ${colors.primary} text-white py-4 rounded-xl font-bold mt-4 shadow-lg transition-all active:scale-95`}>
                 Guardar Producto
@@ -254,11 +387,11 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
             <form onSubmit={handleSaveSupplier} className="space-y-4">
               <div>
                 <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Nombre de la Empresa</label>
-                <input name="name" defaultValue={editingSupplier?.name} required className="w-full p-3 bg-slate-50 border rounded-xl" />
+                <input name="name" defaultValue={editingSupplier?.name} required className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-400" />
               </div>
               <div>
                 <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">WhatsApp (incluir código de país)</label>
-                <input name="whatsapp" placeholder="Ej: 54911..." defaultValue={editingSupplier?.whatsapp} required className="w-full p-3 bg-slate-50 border rounded-xl" />
+                <input name="whatsapp" placeholder="Ej: 54911..." defaultValue={editingSupplier?.whatsapp} required className="w-full p-3 bg-slate-50 border rounded-xl outline-none" />
               </div>
               <button type="submit" className={`w-full ${colors.primary} text-white py-4 rounded-xl font-bold mt-4 shadow-lg transition-all active:scale-95`}>
                 Guardar Proveedor
@@ -372,7 +505,12 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                         <p className="font-bold text-slate-800">${sale.total} <span className="text-[10px] font-normal text-slate-400">- {sale.payment_method}</span></p>
                         <p className="text-[10px] text-slate-400">{new Date(sale.created_at).toLocaleString()}</p>
                       </div>
-                      <button className="p-2 hover:bg-white rounded-lg border shadow-sm"><Printer size={16} /></button>
+                      <button 
+                        onClick={() => generatePDF(sale, sale.sale_items || [])}
+                        className="p-2 hover:bg-white rounded-lg border shadow-sm transition-all active:scale-90"
+                      >
+                        <Printer size={16} />
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -400,8 +538,19 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                 <span>${calculateTotal()}</span>
               </div>
               <div className="space-y-2">
-                <button onClick={() => handleCheckout('TARJETA', 'FACTURA')} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg hover:bg-blue-700 transition-colors active:scale-95">Facturar ARCA (AFIP)</button>
-                <button onClick={() => handleCheckout('EFECTIVO', 'COMPROBANTE')} className="w-full border-2 border-slate-200 py-4 rounded-2xl font-bold text-slate-600 hover:bg-slate-50 transition-colors active:scale-95">Solo Comprobante</button>
+                <button 
+                  onClick={() => setShowCheckoutModal(true)} 
+                  disabled={cart.length === 0}
+                  className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black shadow-lg hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  COBRAR Y FACTURAR
+                </button>
+                <button 
+                  onClick={() => setCart([])} 
+                  className="w-full text-red-500 font-bold py-2 hover:bg-red-50 rounded-xl transition-all"
+                >
+                  Vaciar Carrito
+                </button>
               </div>
             </div>
           </div>
