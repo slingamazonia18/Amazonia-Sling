@@ -2,13 +2,12 @@
 import { createClient } from '@supabase/supabase-js';
 
 /**
- * IMPORTANTE: Para Vercel, debes configurar estas variables de entorno 
- * en el Dashboard del proyecto: Settings > Environment Variables
- * SUPABASE_URL: URL de tu proyecto Supabase
- * SUPABASE_ANON_KEY: Tu clave anon/public
+ * Configuración de Supabase para Veterinaria Amazonia.
+ * Se utilizan las credenciales proporcionadas directamente para asegurar 
+ * que la aplicación funcione en cualquier entorno (Local o Vercel).
  */
 
-const supabaseUrl = process.env.SUPABASE_URL || 'https://tu-proyecto.supabase.co';
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || 'tu-anon-key';
+const supabaseUrl = 'https://ermprfllhafectlxcoin.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVybXByZmxsaGFmZWN0bHhjb2luIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgzMTMzNjIsImV4cCI6MjA4Mzg4OTM2Mn0.bZsFZOvtJwOIkzHfTr-ZQBt83kGQFGU8-pBehCudLEA';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
