@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, Package, ShoppingCart, Users, TrendingUp, Search, Plus, 
-  Trash2, Printer, FileText, PhoneCall, Save, Barcode, ShoppingBag, Leaf, Loader2, X, CreditCard, QrCode, Banknote, RefreshCcw, Filter
+  Trash2, Printer, FileText, PhoneCall, Save, Barcode, ShoppingBag, Leaf, Loader2, X, CreditCard, QrCode, Banknote, RefreshCcw, Filter, AlertTriangle
 } from 'lucide-react';
 import { Product, Supplier, Sale } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -29,9 +29,9 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const [showSupplierModal, setShowSupplierModal] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<any>(null);
 
-  // Estados para el cálculo automático en el modal
-  const [formCost, setFormCost] = useState<number>(0);
-  const [formMargin, setFormMargin] = useState<number>(30);
+  // Estados como STRINGS para permitir que el campo esté vacío y manejar decimales con coma/punto
+  const [formCost, setFormCost] = useState<string>('0');
+  const [formMargin, setFormMargin] = useState<string>('30');
   const [formPrice, setFormPrice] = useState<number>(0);
 
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
@@ -50,9 +50,11 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     fetchData();
   }, [type]);
 
-  // Al cambiar costo o margen, calculamos el precio
+  // Al cambiar costo o margen (strings), calculamos el precio final (number)
   useEffect(() => {
-    const calculated = formCost * (1 + formMargin / 100);
+    const costNum = parseFloat(formCost.replace(',', '.')) || 0;
+    const marginNum = parseFloat(formMargin.replace(',', '.')) || 0;
+    const calculated = costNum * (1 + marginNum / 100);
     setFormPrice(Number(calculated.toFixed(2)));
   }, [formCost, formMargin]);
 
@@ -80,8 +82,8 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       barcode: (e.currentTarget.elements.namedItem('barcode') as HTMLInputElement).value,
       stock: Number((e.currentTarget.elements.namedItem('stock') as HTMLInputElement).value),
       min_stock: Number((e.currentTarget.elements.namedItem('min_stock') as HTMLInputElement).value),
-      cost: formCost,
-      margin: formMargin,
+      cost: parseFloat(formCost.replace(',', '.')) || 0,
+      margin: parseFloat(formMargin.replace(',', '.')) || 0,
       price: formPrice,
       category: type
     };
@@ -174,6 +176,13 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const handleCheckout = async () => {
     const total = cart.reduce((acc, curr) => acc + (Number(curr.product.price) * curr.qty), 0);
     if (total === 0) return;
+
+    const outOfStock = cart.filter(item => item.qty > item.product.stock);
+    if (outOfStock.length > 0) {
+      alert(`Error: Stock insuficiente para los siguientes productos: \n${outOfStock.map(i => `- ${i.product.name} (Disponible: ${i.product.stock})`).join('\n')}`);
+      return;
+    }
+
     setLoading(true);
     try {
       const { data: sale, error: saleError } = await supabase.from('sales').insert({
@@ -193,9 +202,12 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       }));
       const { error: itemError } = await supabase.from('sale_items').insert(items);
       if (itemError) throw itemError;
+      
       for (const item of cart) {
-        await supabase.from('products').update({ stock: item.product.stock - item.qty }).eq('id', item.product.id);
+        const newStock = item.product.stock - item.qty;
+        await supabase.from('products').update({ stock: newStock }).eq('id', item.product.id);
       }
+
       generatePDF(sale, items);
       setCart([]);
       setShowCheckoutModal(false);
@@ -205,6 +217,32 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleAddToCart = (p: any) => {
+    setCart(prev => {
+      const exists = prev.find(item => item.product.id === p.id);
+      const currentQty = exists ? exists.qty : 0;
+      
+      if (currentQty >= p.stock) {
+        alert(`Stock máximo alcanzado para ${p.name}. (Disponible: ${p.stock})`);
+        return prev;
+      }
+
+      if (exists) {
+        return prev.map(item => item.product.id === p.id ? { ...item, qty: item.qty + 1 } : item);
+      }
+      return [...prev, { product: p, qty: 1 }];
+    });
+  };
+
+  const handleNumericInput = (value: string, setter: (val: string) => void) => {
+    // Permite números y un solo separador decimal (coma o punto), bloquea letras
+    const sanitized = value.replace(/[^0-9,.]/g, '');
+    // Asegura que solo haya un punto o coma
+    const parts = sanitized.split(/[.,]/);
+    if (parts.length > 2) return;
+    setter(sanitized);
   };
 
   const filteredSales = salesHistory.filter(sale => {
@@ -249,7 +287,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                 </div>
               </div>
               <div className="pt-6 border-t flex flex-col gap-4">
-                <div className="flex justify-between items-center text-3xl font-black"><span>TOTAL</span><span>${cart.reduce((a, c) => a + (Number(c.product.price) * c.qty), 0)}</span></div>
+                <div className="flex justify-between items-center text-3xl font-black"><span>TOTAL</span><span>${cart.reduce((a, c) => a + (Number(c.product.price) * c.qty), 0).toFixed(2)}</span></div>
                 <button onClick={handleCheckout} disabled={loading} className="w-full bg-blue-600 text-white py-6 rounded-[1.5rem] font-black text-xl shadow-xl hover:bg-blue-700 transition-all active:scale-95 flex items-center justify-center gap-3">
                   {loading ? <Loader2 className="animate-spin" /> : 'CONFIRMAR COBRO'}
                 </button>
@@ -283,11 +321,25 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
               <div className="col-span-2 grid grid-cols-3 gap-4 p-4 bg-slate-50 rounded-2xl border">
                 <div>
                   <label className="text-xs font-black text-slate-400 uppercase">Costo ($)</label>
-                  <input type="number" step="0.01" value={formCost} onChange={(e) => setFormCost(Number(e.target.value))} required className="w-full p-2 bg-white border rounded-lg font-bold" />
+                  <input 
+                    type="text" 
+                    inputMode="decimal"
+                    value={formCost} 
+                    onChange={(e) => handleNumericInput(e.target.value, setFormCost)} 
+                    required 
+                    className="w-full p-2 bg-white border rounded-lg font-bold outline-blue-500" 
+                  />
                 </div>
                 <div>
                   <label className="text-xs font-black text-slate-400 uppercase">Margen (%)</label>
-                  <input type="number" value={formMargin} onChange={(e) => setFormMargin(Number(e.target.value))} required className="w-full p-2 bg-white border rounded-lg font-bold" />
+                  <input 
+                    type="text" 
+                    inputMode="decimal"
+                    value={formMargin} 
+                    onChange={(e) => handleNumericInput(e.target.value, setFormMargin)} 
+                    required 
+                    className="w-full p-2 bg-white border rounded-lg font-bold outline-blue-500" 
+                  />
                 </div>
                 <div>
                   <label className="text-xs font-black text-slate-400 uppercase">Precio Final</label>
@@ -329,8 +381,8 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
               </div>
               <button onClick={() => { 
                 setEditingProduct(null); 
-                setFormCost(0);
-                setFormMargin(30);
+                setFormCost('0');
+                setFormMargin('30');
                 setShowProductModal(true); 
               }} className={`${colors.primary} text-white px-8 py-3 rounded-2xl font-black flex items-center gap-2 shadow-lg active:scale-95 transition-all`}>
                 <Plus size={20} /> NUEVO PRODUCTO
@@ -356,15 +408,15 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                       </td>
                       <td className="px-6 py-4">
                         <span className={`font-black ${p.stock <= p.min_stock ? 'text-red-500' : 'text-slate-900'}`}>{p.stock}</span>
-                        {p.stock <= p.min_stock && <span className="ml-2 bg-red-100 text-red-700 px-2 py-0.5 rounded text-[8px] font-black uppercase">RECHACER</span>}
+                        {p.stock <= p.min_stock && <span className="ml-2 bg-red-100 text-red-700 px-2 py-0.5 rounded text-[8px] font-black uppercase">{p.stock <= 0 ? 'SIN STOCK' : 'REPONER'}</span>}
                       </td>
                       <td className="px-6 py-4 font-bold text-slate-500">${p.cost}</td>
                       <td className="px-6 py-4 font-black text-slate-900">${p.price}</td>
                       <td className="px-6 py-4 text-right flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => { 
                           setEditingProduct(p); 
-                          setFormCost(p.cost);
-                          setFormMargin(p.margin);
+                          setFormCost(p.cost.toString());
+                          setFormMargin(p.margin.toString());
                           setShowProductModal(true); 
                         }} className="p-3 text-blue-500 hover:bg-blue-50 rounded-xl"><Save size={18} /></button>
                         <button onClick={() => deleteProduct(p.id)} className="p-3 text-red-500 hover:bg-red-50 rounded-xl"><Trash2 size={18} /></button>
@@ -389,21 +441,28 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-h-[40vh] overflow-y-auto pr-2">
-                  {products.filter(p => p.stock > 0 && p.name.toLowerCase().includes(searchTerm.toLowerCase())).map(p => (
-                    <button key={p.id} onClick={() => {
-                      setCart(prev => {
-                        const exists = prev.find(item => item.product.id === p.id);
-                        if (exists) return prev.map(item => item.product.id === p.id ? { ...item, qty: item.qty + 1 } : item);
-                        return [...prev, { product: p, qty: 1 }];
-                      });
-                    }} className="p-4 border-2 border-slate-100 rounded-2xl hover:border-blue-500 transition-all text-left bg-white active:scale-95 group">
-                      <p className="font-black text-slate-800 truncate">{p.name}</p>
-                      <div className="flex justify-between items-center mt-2">
-                        <span className="text-blue-600 font-black text-lg">${p.price}</span>
-                        <span className="text-[10px] font-black text-slate-300 uppercase">Stock: {p.stock}</span>
-                      </div>
-                    </button>
-                  ))}
+                  {products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())).map(p => {
+                    const isOutOfStock = p.stock <= 0;
+                    return (
+                      <button 
+                        key={p.id} 
+                        onClick={() => !isOutOfStock && handleAddToCart(p)} 
+                        disabled={isOutOfStock}
+                        className={`p-4 border-2 rounded-2xl transition-all text-left bg-white active:scale-95 group relative overflow-hidden ${isOutOfStock ? 'border-slate-100 opacity-60 grayscale' : 'border-slate-100 hover:border-blue-500'}`}
+                      >
+                        {isOutOfStock && (
+                          <div className="absolute top-0 right-0 bg-red-500 text-white px-3 py-1 text-[8px] font-black uppercase rotate-45 translate-x-3 -translate-y-1 shadow-md">
+                            AGOTADO
+                          </div>
+                        )}
+                        <p className="font-black text-slate-800 truncate">{p.name}</p>
+                        <div className="flex justify-between items-center mt-2">
+                          <span className={`font-black text-lg ${isOutOfStock ? 'text-slate-400' : 'text-blue-600'}`}>${p.price}</span>
+                          <span className={`text-[10px] font-black uppercase ${isOutOfStock ? 'text-red-500' : 'text-slate-300'}`}>Stock: {p.stock}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -429,7 +488,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                         </p>
                       </div>
                       <div className="flex items-center gap-4">
-                        <p className="text-xl font-black text-slate-900">${sale.total}</p>
+                        <p className="text-xl font-black text-slate-900">${sale.total.toFixed(2)}</p>
                         <button onClick={() => generatePDF(sale, sale.sale_items || [])} className="p-3 bg-white border rounded-xl hover:shadow-md active:scale-90 transition-all"><Printer size={18} /></button>
                       </div>
                     </div>
@@ -441,14 +500,14 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
             <div className="lg:col-span-1 bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-200 h-fit sticky top-24">
               <h3 className="text-xl font-black mb-8 text-slate-800">Carrito</h3>
               <div className="space-y-6 mb-8 max-h-[35vh] overflow-y-auto pr-2">
-                {cart.length === 0 ? <p className="text-center text-slate-400 py-10 font-bold">Vacio</p> : cart.map(item => (
+                {cart.length === 0 ? <p className="text-center text-slate-400 py-10 font-bold">Vacío</p> : cart.map(item => (
                   <div key={item.product.id} className="flex justify-between items-center">
                     <div className="flex-1 min-w-0 pr-4">
                       <p className="font-black text-sm text-slate-800 truncate">{item.product.name}</p>
                       <p className="text-[10px] font-bold text-slate-400 uppercase">{item.qty} un x ${item.product.price}</p>
                     </div>
                     <div className="flex items-center gap-3">
-                      <p className="font-black text-slate-900">${item.qty * item.product.price}</p>
+                      <p className="font-black text-slate-900">${(item.qty * item.product.price).toFixed(2)}</p>
                       <button onClick={() => setCart(prev => prev.filter(i => i.product.id !== item.product.id))} className="text-red-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
                     </div>
                   </div>
@@ -457,10 +516,20 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
               <div className="border-t-2 border-dashed border-slate-100 pt-6 mb-8">
                 <div className="flex justify-between items-center text-3xl font-black text-slate-900">
                   <span>TOTAL</span>
-                  <span>${cart.reduce((a, c) => a + (Number(c.product.price) * c.qty), 0)}</span>
+                  <span>${cart.reduce((a, c) => a + (Number(c.product.price) * c.qty), 0).toFixed(2)}</span>
                 </div>
               </div>
-              <button onClick={() => setShowCheckoutModal(true)} disabled={cart.length === 0} className="w-full bg-slate-900 text-white py-6 rounded-3xl font-black text-lg tracking-tight shadow-xl active:scale-95 disabled:opacity-50 transition-all">COBRAR VENTA</button>
+              <button 
+                onClick={() => setShowCheckoutModal(true)} 
+                disabled={cart.length === 0} 
+                className="w-full bg-slate-900 text-white py-6 rounded-3xl font-black text-lg tracking-tight shadow-xl active:scale-95 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+              >
+                {cart.some(i => i.qty > i.product.stock) ? <AlertTriangle size={20} /> : null}
+                {cart.some(i => i.qty > i.product.stock) ? 'STOCK INSUFICIENTE' : 'COBRAR VENTA'}
+              </button>
+              {cart.some(i => i.qty > i.product.stock) && (
+                <p className="mt-4 text-[10px] font-black text-red-500 uppercase text-center animate-pulse">Hay productos que superan el stock disponible.</p>
+              )}
             </div>
           </div>
         )}
@@ -493,7 +562,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                     <Tooltip cursor={{fill: 'transparent'}} contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }} />
                     <Bar dataKey="stock" radius={[10, 10, 0, 0]} barSize={40}>
                       {products.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.stock <= entry.min_stock ? '#ef4444' : (type === 'MATEANDO' ? '#10b981' : '#f59e0b')} />
+                        <Cell key={`cell-${index}`} fill={entry.stock <= 0 ? '#ef4444' : entry.stock <= entry.min_stock ? '#f97316' : (type === 'MATEANDO' ? '#10b981' : '#f59e0b')} />
                       ))}
                     </Bar>
                   </BarChart>
