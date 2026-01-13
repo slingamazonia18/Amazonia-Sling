@@ -20,6 +20,19 @@ export interface Supplier {
   category: 'PETSHOP' | 'MATEANDO';
 }
 
+export interface Payment {
+  id: string;
+  created_at: string;
+  description: string;
+  amount: number;
+  date: string;
+  time: string;
+  type: 'PROVEEDOR' | 'SERVICIO' | 'EMPLEADO' | 'OTRO';
+  system_type: 'PETSHOP' | 'MATEANDO';
+  payment_method: string;
+  recipient_name?: string;
+}
+
 export interface Sale {
   id: string;
   created_at: string;
