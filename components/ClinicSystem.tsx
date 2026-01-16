@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ArrowLeft, Calendar as CalendarIcon, Clock, User, Dog, Plus, ChevronLeft, ChevronRight, Filter, Loader2, X, Trash2
 } from 'lucide-react';
@@ -11,11 +11,21 @@ interface ClinicSystemProps {
 }
 
 const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
+  // Función auxiliar para obtener la fecha local en formato YYYY-MM-DD
+  const getLocalDateString = (date: Date = new Date()) => {
+    const offset = date.getTimezoneOffset();
+    const localDate = new Date(date.getTime() - (offset * 60 * 1000));
+    return localDate.toISOString().split('T')[0];
+  };
+
   const [appointments, setAppointments] = useState<any[]>([]);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(getLocalDateString());
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [viewMode, setViewMode] = useState<'DÍA' | 'SEMANA'>('DÍA');
+
+  // Estado para la vista del calendario (mes y año que se está visualizando)
+  const [viewDate, setViewDate] = useState(new Date());
 
   useEffect(() => {
     fetchAppointments();
@@ -70,17 +80,17 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
     'CONTROL': 'bg-amber-100 text-amber-700 border-amber-200'
   };
 
-  // Mejorada la lógica de filtrado usando strings ISO para evitar problemas de Timezone
   const getFilteredAppointments = () => {
     if (viewMode === 'DÍA') {
       return appointments.filter(a => a.date === selectedDate);
     } else {
-      const start = new Date(selectedDate);
-      const end = new Date(selectedDate);
+      // Para vista semanal, calculamos 7 días desde la fecha seleccionada
+      const start = new Date(selectedDate + 'T12:00:00');
+      const end = new Date(selectedDate + 'T12:00:00');
       end.setDate(start.getDate() + 7);
       
-      const startStr = start.toISOString().split('T')[0];
-      const endStr = end.toISOString().split('T')[0];
+      const startStr = getLocalDateString(start);
+      const endStr = getLocalDateString(end);
       
       return appointments.filter(a => a.date >= startStr && a.date <= endStr);
     }
@@ -95,6 +105,48 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
   }, {});
 
   const sortedDates = Object.keys(grouped).sort();
+
+  // Lógica de Generación de Calendario (Grid de 6 semanas fijo para evitar saltos de UI)
+  const calendarDays = useMemo(() => {
+    const year = viewDate.getFullYear();
+    const month = viewDate.getMonth();
+    const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0 (Dom) a 6 (Sab)
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    const days = [];
+    // Padding inicial
+    for (let i = 0; i < firstDayOfMonth; i++) {
+      days.push(null);
+    }
+    // Días del mes
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(new Date(year, month, i));
+    }
+    // Padding final para completar 42 celdas (6 semanas)
+    while (days.length < 42) {
+      days.push(null);
+    }
+    return days;
+  }, [viewDate]);
+
+  const handleMonthChange = (month: number) => {
+    setViewDate(new Date(viewDate.getFullYear(), month, 1));
+  };
+
+  const handleYearChange = (year: number) => {
+    setViewDate(new Date(year, viewDate.getMonth(), 1));
+  };
+
+  const changeMonthOffset = (offset: number) => {
+    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + offset, 1));
+  };
+
+  const months = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+  ];
+
+  const years = Array.from({ length: 16 }, (_, i) => 2020 + i);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col relative">
@@ -151,43 +203,75 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
 
       <main className="flex-1 p-6 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="space-y-6">
-          <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-200">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="font-black text-slate-800 tracking-tight">Calendario</h2>
-              <div className="flex gap-1">
+          <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200">
+            {/* Cabecera del Calendario con Selectores */}
+            <div className="flex flex-col gap-4 mb-6">
+              <div className="flex justify-between items-center">
+                <div className="flex gap-1">
+                  <button 
+                    onClick={() => changeMonthOffset(-1)}
+                    className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"><ChevronLeft size={18}/></button>
+                  <button 
+                    onClick={() => changeMonthOffset(1)}
+                    className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"><ChevronRight size={18}/></button>
+                </div>
                 <button 
                   onClick={() => {
-                    const d = new Date(selectedDate);
-                    d.setDate(d.getDate() - 1);
-                    setSelectedDate(d.toISOString().split('T')[0]);
+                    const now = new Date();
+                    setViewDate(now);
+                    setSelectedDate(getLocalDateString(now));
                   }}
-                  className="p-1 hover:bg-slate-100 rounded-lg"><ChevronLeft size={16}/></button>
-                <button 
-                  onClick={() => {
-                    const d = new Date(selectedDate);
-                    d.setDate(d.getDate() + 1);
-                    setSelectedDate(d.toISOString().split('T')[0]);
-                  }}
-                  className="p-1 hover:bg-slate-100 rounded-lg"><ChevronRight size={16}/></button>
+                  className="px-3 py-1 text-[9px] font-black text-sky-500 bg-sky-50 rounded-lg hover:bg-sky-100 transition-colors uppercase tracking-widest"
+                >
+                  Hoy
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <select 
+                  value={viewDate.getMonth()} 
+                  onChange={(e) => handleMonthChange(parseInt(e.target.value))}
+                  className="bg-slate-50 border-none rounded-xl p-2 text-xs font-black text-slate-800 outline-none appearance-none cursor-pointer hover:bg-slate-100"
+                >
+                  {months.map((m, i) => <option key={m} value={i}>{m}</option>)}
+                </select>
+                <select 
+                  value={viewDate.getFullYear()} 
+                  onChange={(e) => handleYearChange(parseInt(e.target.value))}
+                  className="bg-slate-50 border-none rounded-xl p-2 text-xs font-black text-slate-800 outline-none appearance-none cursor-pointer hover:bg-slate-100"
+                >
+                  {years.map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
               </div>
             </div>
-            <div className="grid grid-cols-7 gap-1 text-center mb-4">
-              {['D', 'L', 'M', 'M', 'J', 'V', 'S'].map(d => <span key={d} className="text-[10px] font-black text-slate-300">{d}</span>)}
+            
+            <div className="grid grid-cols-7 gap-1 text-center mb-2">
+              {['D', 'L', 'M', 'M', 'J', 'V', 'S'].map(d => (
+                <span key={d} className="text-[10px] font-black text-slate-300 py-2">{d}</span>
+              ))}
             </div>
-            <div className="grid grid-cols-7 gap-2">
-              {Array.from({ length: 30 }).map((_, i) => {
-                const day = i + 1;
-                const dStr = `2024-11-${day.toString().padStart(2, '0')}`;
+            
+            <div className="grid grid-cols-7 gap-1">
+              {calendarDays.map((dateObj, i) => {
+                if (!dateObj) return <div key={`empty-${i}`} className="aspect-square opacity-20 bg-slate-50/50 rounded-xl" />;
+                
+                const dStr = getLocalDateString(dateObj);
                 const active = selectedDate === dStr;
+                const isToday = getLocalDateString() === dStr;
                 const hasAppt = appointments.some(a => a.date === dStr);
+                
                 return (
                   <button 
-                    key={i} 
+                    key={dStr} 
                     onClick={() => setSelectedDate(dStr)} 
-                    className={`aspect-square flex flex-col items-center justify-center rounded-2xl text-sm font-bold transition-all relative ${active ? 'bg-sky-500 text-white shadow-lg ring-4 ring-sky-100' : 'hover:bg-slate-50 text-slate-600'}`}
+                    className={`aspect-square flex flex-col items-center justify-center rounded-xl text-xs font-bold transition-all relative ${
+                      active ? 'bg-sky-500 text-white shadow-lg ring-2 ring-sky-100 scale-105 z-10' : 
+                      isToday ? 'bg-sky-50 text-sky-600 border border-sky-200' : 'hover:bg-slate-50 text-slate-600'
+                    }`}
                   >
-                    {day}
-                    {hasAppt && <span className={`absolute bottom-2 w-1.5 h-1.5 rounded-full ${active ? 'bg-white' : 'bg-sky-500'}`}></span>}
+                    {dateObj.getDate()}
+                    {hasAppt && (
+                      <span className={`absolute bottom-1 w-1 h-1 rounded-full ${active ? 'bg-white' : 'bg-sky-500'}`}></span>
+                    )}
                   </button>
                 );
               })}
@@ -202,7 +286,7 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
                 {viewMode === 'DÍA' ? 'Agenda del Día' : 'Agenda de los próximos 7 días'}
               </h2>
               <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">
-                {new Date(selectedDate).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
+                {new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
               </p>
             </div>
             <div className="flex bg-slate-100 p-1 rounded-2xl">
@@ -230,14 +314,17 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
             ) : filtered.length === 0 ? (
               <div className="bg-white p-20 rounded-[2.5rem] border border-dashed border-slate-200 text-center text-slate-400">
                 <CalendarIcon className="mx-auto mb-4 opacity-10" size={60} />
-                <p className="text-lg font-bold">No hay turnos registrados</p>
+                <p className="text-lg font-bold">No hay turnos registrados para esta fecha</p>
+                <button onClick={() => setShowModal(true)} className="mt-4 text-sky-500 font-bold hover:underline">Agendar el primer turno</button>
               </div>
             ) : viewMode === 'DÍA' ? (
-              filtered.map(appt => <AppointmentCard key={appt.id} appt={appt} onDelete={deleteAppointment} typeColors={typeColors} />)
+              <div className="space-y-3">
+                {filtered.map(appt => <AppointmentCard key={appt.id} appt={appt} onDelete={deleteAppointment} typeColors={typeColors} />)}
+              </div>
             ) : (
               sortedDates.map(date => (
                 <div key={date} className="space-y-3">
-                  <div className="flex items-center gap-4 px-4">
+                  <div className="flex items-center gap-4 px-4 pt-4">
                     <span className="h-px bg-slate-200 flex-1"></span>
                     <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">
                       {new Date(date + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' })}

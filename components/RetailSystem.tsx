@@ -1,9 +1,9 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   ArrowLeft, Package, ShoppingCart, Users, TrendingUp, Search, Plus, 
   Trash2, Printer, FileText, PhoneCall, Save, Barcode, ShoppingBag, Leaf, Loader2, X, CreditCard, QrCode, Banknote, RefreshCcw, Filter, AlertTriangle, Percent, Minus, PlusCircle, Calendar, Receipt, Briefcase, Landmark,
-  Clock
+  Clock, Scan
 } from 'lucide-react';
 import { Product, Supplier, Sale, Payment } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -25,6 +25,12 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [saleSearchTerm, setSaleSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
+  
+  // Barcode Scanner Logic
+  const [barcodeInput, setBarcodeInput] = useState('');
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const modalBarcodeRef = useRef<HTMLInputElement>(null);
+  const modalNameRef = useRef<HTMLInputElement>(null);
   
   const [showProductModal, setShowProductModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
@@ -62,6 +68,19 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     setFormPrice(Number(calculated.toFixed(2)));
   }, [formCost, formMargin]);
 
+  // Auto-focus logic
+  useEffect(() => {
+    if (activeTab === 'VENTAS' && barcodeInputRef.current) {
+      barcodeInputRef.current.focus();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (showProductModal && modalBarcodeRef.current) {
+      setTimeout(() => modalBarcodeRef.current?.focus(), 100);
+    }
+  }, [showProductModal]);
+
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -78,6 +97,27 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       console.error("Error fetching data:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleBarcodeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!barcodeInput) return;
+    const product = products.find(p => p.barcode === barcodeInput);
+    if (product) {
+      handleAddToCart(product);
+      setBarcodeInput('');
+    } else {
+      alert("Producto no encontrado con ese código.");
+      setBarcodeInput('');
+    }
+    barcodeInputRef.current?.focus();
+  };
+
+  const handleModalBarcodeKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      modalNameRef.current?.focus();
     }
   };
 
@@ -159,22 +199,55 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   };
 
   const generatePDF = (saleData: any, items: any[]) => {
-    const doc = new jsPDF();
+    const doc = new jsPDF({
+      orientation: 'p',
+      unit: 'mm',
+      format: [80, 150]
+    });
     const isFactura = saleData.billing_type === 'FACTURA';
-    const date = new Date(saleData.created_at).toLocaleString();
-    doc.setFontSize(22); doc.text("VETERINARIA AMAZONIA", 105, 20, { align: 'center' });
-    doc.setFontSize(10); doc.text(isFactura ? "FACTURA ELECTRÓNICA - TIPO B" : "COMPROBANTE DE VENTA", 105, 30, { align: 'center' });
-    doc.line(10, 35, 200, 35); doc.text(`Fecha: ${date}`, 10, 45);
-    doc.text(`Medio de Pago: ${saleData.payment_method}`, 10, 50);
-    doc.text(`ID Venta: ${saleData.id.slice(0, 8)}`, 150, 45);
-    let y = 70; doc.setFont("helvetica", "bold"); doc.text("Producto", 10, y);
-    doc.text("Cant.", 120, y); doc.text("Subtotal", 180, y, { align: 'right' });
-    doc.setFont("helvetica", "normal"); y += 10;
-    items.forEach(item => { doc.text(item.name.substring(0, 40), 10, y); doc.text(item.quantity.toString(), 120, y);
-      doc.text(`$${item.subtotal.toFixed(2)}`, 180, y, { align: 'right' }); y += 8; });
-    doc.line(10, y, 200, y); y += 10; doc.setFontSize(14); doc.setFont("helvetica", "bold");
-    doc.text(`TOTAL FINAL: $${saleData.total.toFixed(2)}`, 180, y, { align: 'right' });
-    doc.save(`Amazonia_Venta_${saleData.id.slice(0,8)}.pdf`);
+    const date = new Date(saleData.created_at).toLocaleString('es-AR');
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.text("AMAZONIA VETERINARIA", 40, 10, { align: 'center' });
+    doc.setFontSize(7);
+    doc.text(isFactura ? "FACTURA TIPO B" : "TICKET NO FISCAL", 40, 14, { align: 'center' });
+    
+    doc.setFont("helvetica", "normal");
+    doc.text(`Fecha: ${date}`, 5, 20);
+    doc.text(`Pago: ${saleData.payment_method}`, 5, 23);
+    doc.text(`ID: ${saleData.id.slice(0, 8)}`, 5, 26);
+    
+    doc.line(5, 28, 75, 28);
+    let y = 32;
+    doc.setFont("helvetica", "bold");
+    doc.text("DESCRIPCIÓN", 5, y);
+    doc.text("CANT", 50, y);
+    doc.text("TOTAL", 75, y, { align: 'right' });
+    
+    doc.setFont("helvetica", "normal");
+    y += 4;
+    items.forEach(item => {
+      const name = item.name.length > 25 ? item.name.substring(0, 22) + "..." : item.name;
+      doc.text(name, 5, y);
+      doc.text(item.quantity.toString(), 52, y);
+      doc.text(`$${item.subtotal.toFixed(2)}`, 75, y, { align: 'right' });
+      y += 4;
+    });
+    
+    doc.line(5, y, 75, y);
+    y += 6;
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.text("TOTAL:", 5, y);
+    doc.text(`$${saleData.total.toFixed(2)}`, 75, y, { align: 'right' });
+    
+    y += 8;
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "italic");
+    doc.text("¡Gracias por su compra en Amazonia!", 40, y, { align: 'center' });
+    
+    doc.save(`Ticket_Amazonia_${saleData.id.slice(0,8)}.pdf`);
   };
 
   const handleCheckout = async () => {
@@ -204,7 +277,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const handleAddToCart = (p: any) => {
     setCart(prev => {
       const exists = prev.find(item => item.product.id === p.id);
-      if ((exists ? exists.qty : 0) >= p.stock) { alert("Sin stock disponible."); return prev; }
+      if ((exists ? exists.qty : 0) >= p.stock) { alert(`Sin stock disponible para ${p.name}`); return prev; }
       if (exists) return prev.map(item => item.product.id === p.id ? { ...item, qty: item.qty + 1 } : item);
       return [...prev, { product: p, qty: 1 }];
     });
@@ -249,7 +322,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col relative">
-      {/* Modal Pagos - ACHICADO */}
+      {/* Modal Pagos */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-black/70 z-[70] flex items-center justify-center p-4 backdrop-blur-md">
           <div className="bg-white rounded-[2rem] w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95 duration-200">
@@ -390,10 +463,35 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
         {activeTab === 'VENTAS' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full">
             <div className="space-y-8 order-2 lg:order-1 flex flex-col h-full">
+              {/* BARCODE INPUT AREA */}
+              <div className="bg-slate-900 p-6 rounded-[2.5rem] shadow-xl text-white">
+                <div className="flex items-center justify-between mb-4">
+                   <div className="flex items-center gap-2">
+                     <Scan size={20} className="text-blue-400" />
+                     <h3 className="text-sm font-black uppercase tracking-widest">Modo Escáner Activo</h3>
+                   </div>
+                   <div className="px-3 py-1 bg-blue-500/20 rounded-full border border-blue-500/30">
+                     <span className="text-[9px] font-black text-blue-300 animate-pulse">LISTO PARA PISTOLA</span>
+                   </div>
+                </div>
+                <form onSubmit={handleBarcodeSubmit} className="relative">
+                  <Barcode className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={24} />
+                  <input 
+                    ref={barcodeInputRef}
+                    type="text" 
+                    value={barcodeInput}
+                    onChange={(e) => setBarcodeInput(e.target.value)}
+                    placeholder="Escanee el código de barras aquí..." 
+                    className="w-full pl-14 pr-4 py-5 rounded-2xl bg-white/10 border border-white/20 text-white text-xl font-bold placeholder:text-slate-600 outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                  />
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-600">ENTER PARA AGREGAR</div>
+                </form>
+              </div>
+
               <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-200 flex flex-col">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xl font-black text-slate-800 tracking-tight">Caja Registradora</h3>
-                  <div className="relative w-48"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={14} /><input type="text" placeholder="Filtrar..." className="w-full pl-9 pr-3 py-1.5 text-xs border rounded-xl" onChange={(e) => setSearchTerm(e.target.value)} /></div>
+                  <div className="relative w-48"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={14} /><input type="text" placeholder="Filtrar manual..." className="w-full pl-9 pr-3 py-1.5 text-xs border rounded-xl" onChange={(e) => setSearchTerm(e.target.value)} /></div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[50vh] overflow-y-auto pr-2">
                   {products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())).map(p => {
@@ -525,7 +623,6 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
           </div>
         )}
 
-        {/* PROVEEDORES & CONTROL & Modals */}
         {showSupplierModal && (
           <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl">
@@ -540,20 +637,53 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
         )}
 
         {showProductModal && (
-          <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-8 shadow-2xl">
-              <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-black">{editingProduct ? 'Editar' : 'Nuevo'} Producto</h2><button onClick={() => setShowProductModal(false)}><X /></button></div>
-              <form onSubmit={handleSaveProduct} className="grid grid-cols-2 gap-4">
-                <div className="col-span-2"><label className="text-[10px] font-black text-slate-400 uppercase">Nombre del Producto</label><input name="name" defaultValue={editingProduct?.name} required className="w-full p-4 bg-slate-50 border rounded-2xl outline-none" /></div>
-                <div><label className="text-[10px] font-black text-slate-400 uppercase">Código de Barras</label><input name="barcode" defaultValue={editingProduct?.barcode} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none" /></div>
-                <div><label className="text-[10px] font-black text-slate-400 uppercase">Stock Mínimo</label><input name="min_stock" type="number" defaultValue={editingProduct?.min_stock || 5} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none" /></div>
-                <div className="col-span-2 grid grid-cols-3 gap-4 p-4 bg-slate-50 rounded-2xl border">
-                  <div><label className="text-[10px] font-black text-slate-400 uppercase">Costo ($)</label><input type="text" value={formCost} onChange={(e) => handleNumericInput(e.target.value, setFormCost, false)} required className="w-full p-2 bg-white border rounded-lg font-bold" /></div>
-                  <div><label className="text-[10px] font-black text-slate-400 uppercase">Margen (%)</label><input type="text" value={formMargin} onChange={(e) => handleNumericInput(e.target.value, setFormMargin, false)} required className="w-full p-2 bg-white border rounded-lg font-bold" /></div>
-                  <div className="flex flex-col justify-center text-center"><label className="text-[10px] font-black text-slate-400 uppercase">Venta</label><div className="text-xl font-black text-slate-900">${formPrice}</div></div>
+          <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4 backdrop-blur-md">
+            <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex justify-between items-center mb-6">
+                <div className="flex items-center gap-3">
+                   <div className={`p-2 ${colors.primary} text-white rounded-xl shadow-lg`}><Package size={20}/></div>
+                   <h2 className="text-2xl font-black tracking-tight text-slate-800">{editingProduct ? 'Editar' : 'Nuevo'} Producto</h2>
                 </div>
-                <div className="col-span-2"><label className="text-[10px] font-black text-slate-400 uppercase">Stock Actual</label><input name="stock" type="number" min="0" defaultValue={editingProduct?.stock || 0} required className="w-full p-4 bg-slate-50 border rounded-2xl outline-none" /></div>
-                <button type="submit" className={`col-span-2 ${colors.primary} text-white py-4 rounded-2xl font-black mt-4 shadow-lg active:scale-95 transition-all`}>GUARDAR</button>
+                <button onClick={() => setShowProductModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-all"><X /></button>
+              </div>
+              <form onSubmit={handleSaveProduct} className="grid grid-cols-2 gap-4">
+                <div className="col-span-2 relative group">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Código de Barras (Escanee ahora)</label>
+                  <div className="relative">
+                    <Barcode className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500 transition-colors" size={20} />
+                    <input 
+                      ref={modalBarcodeRef}
+                      name="barcode" 
+                      defaultValue={editingProduct?.barcode} 
+                      onKeyDown={handleModalBarcodeKeyDown}
+                      placeholder="Listo para escanear..."
+                      className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-400 focus:bg-white transition-all font-mono text-lg" 
+                    />
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1.5 opacity-0 group-focus-within:opacity-100 transition-opacity">
+                      <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                      <span className="text-[8px] font-black text-emerald-600">ESCANER ACTIVO</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="col-span-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Nombre del Producto</label>
+                  <input 
+                    ref={modalNameRef}
+                    name="name" 
+                    defaultValue={editingProduct?.name} 
+                    required 
+                    placeholder="Ej: Alimento Perro 15kg"
+                    className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-400 focus:bg-white transition-all font-bold" 
+                  />
+                </div>
+                <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Stock Actual</label><input name="stock" type="number" min="0" defaultValue={editingProduct?.stock || 0} required className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-400 focus:bg-white transition-all font-black text-lg" /></div>
+                <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Mínimo Alerta</label><input name="min_stock" type="number" defaultValue={editingProduct?.min_stock || 5} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-400 focus:bg-white transition-all font-black text-lg" /></div>
+                <div className="col-span-2 grid grid-cols-3 gap-4 p-5 bg-slate-50 rounded-[2rem] border-2 border-slate-100 shadow-inner">
+                  <div><label className="text-[9px] font-black text-slate-400 uppercase mb-1 block">Costo ($)</label><input type="text" value={formCost} onChange={(e) => handleNumericInput(e.target.value, setFormCost, false)} required className="w-full p-2.5 bg-white border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-400" /></div>
+                  <div><label className="text-[9px] font-black text-slate-400 uppercase mb-1 block">Margen (%)</label><input type="text" value={formMargin} onChange={(e) => handleNumericInput(e.target.value, setFormMargin, false)} required className="w-full p-2.5 bg-white border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-400" /></div>
+                  <div className="flex flex-col justify-center text-center"><label className="text-[9px] font-black text-slate-400 uppercase mb-1 block">Venta Sugerida</label><div className="text-2xl font-black text-slate-900 tracking-tighter">${formPrice}</div></div>
+                </div>
+                <button type="submit" className={`col-span-2 ${colors.primary} text-white py-5 rounded-[1.5rem] font-black mt-4 shadow-xl active:scale-95 transition-all text-sm uppercase tracking-widest flex items-center justify-center gap-2`}><Save size={20}/> GUARDAR PRODUCTO</button>
               </form>
             </div>
           </div>
