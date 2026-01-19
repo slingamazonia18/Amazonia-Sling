@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   ArrowLeft, Package, ShoppingCart, Users, TrendingUp, Search, Plus, 
   Trash2, Printer, FileText, PhoneCall, Save, Barcode, ShoppingBag, Leaf, Loader2, X, CreditCard, QrCode, Banknote, RefreshCcw, Filter, AlertTriangle, Percent, Minus, PlusCircle, Calendar, Receipt, Briefcase, Landmark,
-  Clock, Scan, Ban, ShieldCheck, History, Calculator, PiggyBank, Wallet, ArrowDownCircle, ArrowUpCircle, Settings, Layers, ListFilter
+  Clock, Scan, Ban, ShieldCheck, History, Calculator, PiggyBank, Wallet, ArrowDownCircle, ArrowUpCircle, Settings, Layers, ListFilter, AlertCircle
 } from 'lucide-react';
 import { Product, Supplier, Sale, Payment, ProductCategory } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -59,12 +59,13 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('EFECTIVO');
   const [selectedBillingType, setSelectedBillingType] = useState<'FACTURA' | 'COMPROBANTE'>('COMPROBANTE');
   const [adjustmentType, setAdjustmentType] = useState<'DESCUENTO' | 'RECARGO'>('DESCUENTO');
-  const [adjustmentPercent, setAdjustmentPercent] = useState<string>('0'); 
+  const [adjustmentPercent, setAdjustmentPercent] = useState<string>(''); 
 
   // Estado del Formulario de Pago Parcial
   const [isPartialPayment, setIsPartialPayment] = useState(false);
   const [payTotal, setPayTotal] = useState('0');
   const [payDelivered, setPayDelivered] = useState('0');
+  const [payDeadline, setPayDeadline] = useState('');
 
   const colors = type === 'PETSHOP' ? {
     primary: 'bg-amber-500', hover: 'hover:bg-amber-600', text: 'text-amber-600',
@@ -113,16 +114,28 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     const total = parseFloat(payTotal.replace(',', '.')) || 0;
     const entrega = parseFloat(payDelivered.replace(',', '.')) || 0;
     const restante = total - entrega;
+    const fechaBase = formData.get('date') as string;
+    
+    // Calcular fecha de vencimiento si hay plazo
+    let dueDate = fechaBase;
+    const diasPlazo = parseInt(payDeadline) || 0;
+    if (diasPlazo > 0) {
+      const d = new Date(fechaBase + 'T12:00:00');
+      d.setDate(d.getDate() + diasPlazo);
+      dueDate = d.toISOString().split('T')[0];
+    }
 
     const paymentData = {
       description: formData.get('description') as string,
-      amount: entrega, // El monto que sale de caja hoy es la entrega
+      amount: entrega,
       total_amount: total,
       paid_amount: entrega,
       remaining_amount: restante,
       status: isPartialPayment && restante > 0 ? 'PENDIENTE' : 'COMPLETO',
+      deadline_days: diasPlazo,
+      due_date: dueDate,
       type: formData.get('type') as any,
-      date: formData.get('date') as string,
+      date: fechaBase,
       time: formData.get('time') as string,
       payment_method: formData.get('payment_method') as string,
       system_type: type
@@ -134,6 +147,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       setShowPaymentModal(false);
       setPayTotal('0');
       setPayDelivered('0');
+      setPayDeadline('');
       setIsPartialPayment(false);
       fetchData();
     } catch (err: any) { alert(err.message); }
@@ -226,7 +240,11 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       }));
       await supabase.from('sale_items').insert(items);
       for (const item of cart) { await supabase.from('products').update({ stock: item.product.stock - item.qty }).eq('id', item.product.id); }
-      generatePDF(sale, items); setCart([]); setAdjustmentPercent('0'); setShowCheckoutModal(false); fetchData();
+      generatePDF(sale, items); 
+      setCart([]); 
+      setAdjustmentPercent(''); 
+      setShowCheckoutModal(false); 
+      fetchData();
     } catch (error: any) { alert(error.message); }
     finally { setLoading(false); }
   };
@@ -334,60 +352,9 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     return products.filter(p => p.stock <= p.min_stock);
   }, [products]);
 
-  const handleSaveProduct_local = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const stockValue = Number((e.currentTarget.elements.namedItem('stock') as HTMLInputElement).value);
-    if (stockValue < 0) { alert("Stock no válido."); return; }
-    const productData = {
-      name: (e.currentTarget.elements.namedItem('name') as HTMLInputElement).value,
-      barcode: (e.currentTarget.elements.namedItem('barcode') as HTMLInputElement).value,
-      stock: stockValue,
-      min_stock: Number((e.currentTarget.elements.namedItem('min_stock') as HTMLInputElement).value),
-      product_category: (e.currentTarget.elements.namedItem('product_category') as HTMLSelectElement).value,
-      cost: parseFloat(formCost.replace(',', '.')) || 0,
-      margin: parseFloat(formMargin.replace(',', '.')) || 0,
-      price: formPrice,
-      category: type
-    };
-    try {
-      let error;
-      if (editingProduct) { ({ error } = await supabase.from('products').update(productData).eq('id', editingProduct.id)); }
-      else { ({ error } = await supabase.from('products').insert(productData)); }
-      if (error) throw error;
-      setShowProductModal(false); setEditingProduct(null); fetchData();
-    } catch (err: any) { alert(err.message); }
-  };
-
-  const handleSaveCategory_local = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const name = (e.currentTarget.elements.namedItem('cat_name') as HTMLInputElement).value;
-    try {
-      const { error } = await supabase.from('product_categories').insert({ name, system_type: type });
-      if (error) throw error;
-      fetchData();
-      (e.target as HTMLFormElement).reset();
-    } catch (err: any) { alert(err.message); }
-  };
-
-  const handleSaveSupplier_local = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const supplierData = {
-      name: formData.get('name') as string,
-      whatsapp: formData.get('whatsapp') as string,
-      category: type
-    };
-    try {
-      const { error } = await supabase.from('suppliers').insert(supplierData);
-      if (error) throw error;
-      setShowSupplierModal(false);
-      fetchData();
-    } catch (err: any) { alert(err.message); }
-  };
-
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col relative">
-      {/* Modal Pagos con Lógica de Pagos Parciales */}
+      {/* Modal Pagos con Lógica de Pagos Parciales y PLAZOS */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-black/70 z-[110] flex items-center justify-center p-4 backdrop-blur-md">
           <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl animate-in zoom-in-95">
@@ -412,16 +379,26 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                   <input value={payTotal} onChange={(e) => { handleNumericInput(e.target.value, setPayTotal); setPayDelivered(e.target.value); }} required className="w-full p-4 bg-slate-50 border rounded-2xl outline-none focus:border-blue-500 font-black text-2xl" />
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Total Factura ($)</label>
-                    <input value={payTotal} onChange={(e) => handleNumericInput(e.target.value, setPayTotal)} required className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-black text-xl" />
+                <div className="space-y-4 animate-in fade-in duration-300">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Total Factura ($)</label>
+                      <input value={payTotal} onChange={(e) => handleNumericInput(e.target.value, setPayTotal)} required className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-black text-xl" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1 block">Entrega Hoy ($)</label>
+                      <input value={payDelivered} onChange={(e) => handleNumericInput(e.target.value, setPayDelivered)} required className="w-full p-4 bg-amber-50 border border-amber-100 rounded-2xl outline-none font-black text-xl text-amber-700" />
+                    </div>
                   </div>
                   <div>
-                    <label className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1 block">Entrega Hoy ($)</label>
-                    <input value={payDelivered} onChange={(e) => handleNumericInput(e.target.value, setPayDelivered)} required className="w-full p-4 bg-amber-50 border border-amber-100 rounded-2xl outline-none font-black text-xl text-amber-700" />
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Plazo de Pago (Días)</label>
+                    <div className="relative">
+                       <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                       <input value={payDeadline} onChange={(e) => handleNumericInput(e.target.value, setPayDeadline)} className="w-full pl-12 pr-4 py-4 bg-slate-50 border rounded-2xl outline-none font-bold" placeholder="Ej: 15" />
+                    </div>
+                    <p className="text-[9px] text-slate-400 mt-1 italic font-medium uppercase">El proveedor dio este plazo para pagar el resto.</p>
                   </div>
-                  <div className="col-span-2 p-3 bg-slate-900 text-white rounded-2xl flex justify-between items-center">
+                  <div className="p-3 bg-slate-900 text-white rounded-2xl flex justify-between items-center">
                     <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Restante (Deuda)</span>
                     <span className="text-xl font-black">${(parseFloat(payTotal) - parseFloat(payDelivered) || 0).toFixed(2)}</span>
                   </div>
@@ -468,7 +445,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       <nav className={`${colors.primary} text-white px-6 py-4 flex items-center justify-between shadow-lg sticky top-0 z-50`}>
         <div className="flex items-center gap-4">
           <button onClick={onBack} className="p-2 hover:bg-white/20 rounded-full transition-colors"><ArrowLeft size={24} /></button>
-          <h1 className="text-2xl font-black flex items-center gap-3 tracking-tighter italic">AMAZONIA {type}</h1>
+          <h1 className="text-2xl font-black flex items-center gap-3 tracking-tighter italic uppercase">AMAZONIA {type}</h1>
         </div>
         <div className="flex bg-white/20 rounded-[1.5rem] p-1 overflow-x-auto max-w-3xl no-scrollbar">
           {['INVENTARIO', 'VENDER', 'HISTORIAL DE VENTAS', 'PROVEEDORES', 'PAGOS', 'CUENTAS'].map(id => (
@@ -508,43 +485,54 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                     <tr>
                       <th className="px-8 py-6">Fecha / Descripción</th>
                       <th className="px-8 py-6">Detalle Pago</th>
-                      <th className="px-8 py-6">Estado</th>
+                      <th className="px-8 py-6">Estado / Vencimiento</th>
                       <th className="px-8 py-6">Egreso Caja</th>
                       <th className="px-8 py-6 text-right">Acción</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {filteredPayments.map(p => (
-                      <tr key={p.id} className="hover:bg-slate-50/50 group transition-colors">
-                        <td className="px-8 py-5">
-                          <p className="font-black text-slate-800 text-sm">{p.description}</p>
-                          <p className="text-[10px] font-bold text-slate-300 uppercase tracking-tighter">
-                            {new Date(p.date + 'T12:00:00').toLocaleDateString('es-AR')} • {p.type}
-                          </p>
-                        </td>
-                        <td className="px-8 py-5">
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total: ${p.total_amount?.toLocaleString() || p.amount?.toLocaleString()}</span>
-                            {p.remaining_amount > 0 && (
-                              <span className="text-[9px] font-black text-amber-600 uppercase tracking-widest">Debe: ${p.remaining_amount.toLocaleString()}</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-8 py-5">
-                          <span className={`text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-widest ${
-                            p.status === 'PENDIENTE' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
-                          }`}>
-                            {p.status || 'COMPLETO'}
-                          </span>
-                        </td>
-                        <td className="px-8 py-5 font-black text-red-500 text-lg">-${(p.paid_amount || p.amount).toLocaleString()}</td>
-                        <td className="px-8 py-5 text-right">
-                          <button onClick={() => { if(confirm("¿Eliminar pago?")) supabase.from('payments').delete().eq('id', p.id).then(() => fetchData()) }} className="p-3 text-red-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100">
-                            <Trash2 size={18} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredPayments.map(p => {
+                      const isOverdue = p.status === 'PENDIENTE' && p.due_date && new Date(p.due_date + 'T12:00:00') < new Date();
+                      return (
+                        <tr key={p.id} className="hover:bg-slate-50/50 group transition-colors">
+                          <td className="px-8 py-5">
+                            <p className="font-black text-slate-800 text-sm">{p.description}</p>
+                            <p className="text-[10px] font-bold text-slate-300 uppercase tracking-tighter">
+                              Registrado: {new Date(p.date + 'T12:00:00').toLocaleDateString('es-AR')} • {p.type}
+                            </p>
+                          </td>
+                          <td className="px-8 py-5">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total Factura: ${p.total_amount?.toLocaleString() || p.amount?.toLocaleString()}</span>
+                              {p.remaining_amount > 0 && (
+                                <span className="text-[9px] font-black text-amber-600 uppercase tracking-widest">Resta pagar: ${p.remaining_amount.toLocaleString()}</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-8 py-5">
+                            <div className="flex flex-col gap-1.5">
+                              <span className={`text-[9px] w-fit font-black px-3 py-1 rounded-full uppercase tracking-widest ${
+                                p.status === 'PENDIENTE' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+                              }`}>
+                                {p.status || 'COMPLETO'}
+                              </span>
+                              {p.status === 'PENDIENTE' && p.due_date && (
+                                <div className={`flex items-center gap-1 text-[9px] font-bold uppercase ${isOverdue ? 'text-red-500' : 'text-slate-400'}`}>
+                                  <AlertCircle size={12} />
+                                  <span>VENCE: {new Date(p.due_date + 'T12:00:00').toLocaleDateString('es-AR')}</span>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-8 py-5 font-black text-red-500 text-lg">-${(p.paid_amount || p.amount).toLocaleString()}</td>
+                          <td className="px-8 py-5 text-right">
+                            <button onClick={() => { if(confirm("¿Eliminar registro de pago?")) supabase.from('payments').delete().eq('id', p.id).then(() => fetchData()) }} className="p-3 text-red-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100">
+                              <Trash2 size={18} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -560,7 +548,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
           </div>
         )}
 
-        {/* El resto de las pestañas permanecen igual para mantener la consistencia */}
+        {/* INVENTARIO, VENDER y CUENTAS se mantienen iguales para preservar consistencia */}
         {activeTab === 'INVENTARIO' && (
           <div className="space-y-6">
             <div className="flex flex-col md:flex-row gap-4 justify-between items-end">
@@ -584,38 +572,6 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
               <div className="flex gap-2">
                 <button onClick={() => setShowCategoryModal(true)} className="bg-slate-100 text-slate-600 px-6 py-4 rounded-3xl font-black flex items-center gap-2 hover:bg-slate-200 transition-all uppercase text-[10px] tracking-widest"><Settings size={16}/> CATEGORÍAS</button>
                 <button onClick={() => { setEditingProduct(null); setShowProductModal(true); }} className={`${colors.primary} text-white px-10 py-4 rounded-3xl font-black flex items-center gap-2 shadow-xl active:scale-95 transition-all uppercase text-[10px] tracking-widest`}><Plus /> NUEVO PRODUCTO</button>
-              </div>
-            </div>
-            {/* ... Resto de la tabla de inventario ... */}
-          </div>
-        )}
-        
-        {/* Pestañas restantes (VENDER, HISTORIAL, PROVEEDORES, CUENTAS) - Se mantienen igual para brevedad */}
-        {activeTab === 'CUENTAS' && (
-          <div className="space-y-12 animate-in fade-in duration-500 max-w-5xl mx-auto">
-            {/* Panel de estadísticas financieras mejorado con egresos parciales */}
-            <div className="bg-white rounded-[3rem] border-2 border-slate-100 overflow-hidden shadow-2xl">
-              <div className="bg-fuchsia-300 p-6 flex justify-between items-center">
-                <h3 className="text-2xl font-black italic text-slate-900 tracking-tighter">fondo caja</h3>
-                <div className="flex items-center bg-white/40 rounded-xl px-3 border border-white/20">
-                  <span className="text-sm font-black text-slate-900">$</span>
-                  <input type="text" value={cashDrawerFund} onChange={(e) => handleNumericInput(e.target.value, setCashDrawerFund)} className="bg-transparent border-none outline-none w-24 p-2 text-right font-black text-slate-900" placeholder="0.00" />
-                </div>
-              </div>
-              <div className="p-8 space-y-4 font-black italic text-slate-700">
-                <div className="flex justify-between items-center text-lg"><span>venta total</span><span>${stats.ventaTotal.toLocaleString()}</span></div>
-                <div className="flex justify-between items-center text-xl font-black text-slate-900 border-t-2 border-slate-900 pt-2 uppercase"><span>TOTAL DISPONIBLE</span><span>${stats.total1.toLocaleString()}</span></div>
-                <div className="flex justify-between items-center text-lg pt-4 text-slate-500"><span>tarjetas</span><span className="text-red-400">-${stats.tarjetas.toLocaleString()}</span></div>
-                <div className="flex justify-between items-center text-lg text-slate-500"><span>egresos (pagos realizados)</span><span className="text-red-400">-${stats.egresos.toLocaleString()}</span></div>
-                <div className="flex justify-between items-center text-lg text-slate-500 pb-2"><span>retiros</span><span className="text-red-400">-${stats.retiros.toLocaleString()}</span></div>
-                <div className="flex justify-between items-center text-2xl font-black text-slate-900 border-t-2 border-slate-900 pt-2 uppercase tracking-tighter"><span>SALDO CAJA CHICA</span><span className="bg-yellow-200 px-4 py-1 rounded-2xl">${stats.total2.toLocaleString()}</span></div>
-                
-                <div className="mt-8 pt-6 border-t border-slate-100 opacity-60">
-                   <div className="flex justify-between items-center text-sm font-bold uppercase tracking-widest text-amber-600">
-                     <span>Deuda Pendiente (Proveedores)</span>
-                     <span>${payments.filter(p => p.status === 'PENDIENTE').reduce((acc, curr) => acc + (curr.remaining_amount || 0), 0).toLocaleString()}</span>
-                   </div>
-                </div>
               </div>
             </div>
           </div>

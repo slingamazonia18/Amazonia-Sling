@@ -36,6 +36,8 @@ export interface Payment {
   paid_amount: number;
   remaining_amount: number;
   status: 'COMPLETO' | 'PENDIENTE';
+  deadline_days?: number;
+  due_date?: string;
   date: string;
   time: string;
   type: 'PROVEEDOR' | 'SERVICIO' | 'EMPLEADO' | 'RETIRO' | 'OTRO';
