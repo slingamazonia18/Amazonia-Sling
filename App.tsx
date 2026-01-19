@@ -7,7 +7,11 @@ import {
   LayoutDashboard,
   Wallet,
   Calculator,
-  Tags
+  Tags,
+  Lock,
+  User,
+  LogIn,
+  AlertCircle
 } from 'lucide-react';
 import { SystemType } from './types';
 import RetailSystem from './components/RetailSystem';
@@ -16,24 +20,29 @@ import TariffSystem from './components/TariffSystem';
 import { supabase } from './lib/supabase';
 
 const App: React.FC = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [currentSystem, setCurrentSystem] = useState<SystemType>('HUB');
   const [resupplyFund, setResupplyFund] = useState({ MATEANDO: 0, PETSHOP: 0 });
+  
+  // Login States
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState(false);
 
   useEffect(() => {
-    if (currentSystem === 'HUB') {
+    if (isAuthenticated && currentSystem === 'HUB') {
       calculateGlobalResupply();
     }
-  }, [currentSystem]);
+  }, [currentSystem, isAuthenticated]);
 
   const calculateGlobalResupply = async () => {
     try {
-      // Usamos * para evitar errores si la columna is_voided aún no se ha creado
       const { data: sales, error } = await supabase
         .from('sales')
         .select('*, sale_items(*)');
       
       if (error) {
-        console.warn("Error consultando ventas (puede ser por columna faltante):", error.message);
+        console.warn("Error consultando ventas:", error.message);
         return;
       }
 
@@ -44,7 +53,6 @@ const App: React.FC = () => {
 
       const totals = { MATEANDO: 0, PETSHOP: 0 };
       sales?.forEach((sale: any) => {
-        // Manejamos is_voided de forma segura (si no existe, asumimos false)
         const isVoided = sale.is_voided === true;
         if (!isVoided) {
           sale.sale_items?.forEach((item: any) => {
@@ -59,6 +67,26 @@ const App: React.FC = () => {
       setResupplyFund(totals);
     } catch (err) {
       console.error("Error crítico calculando repositorio:", err);
+    }
+  };
+
+  const normalizeText = (text: string) => {
+    return text
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  };
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const validUser = normalizeText(username) === 'amazonia';
+    const validPass = password === '1960';
+
+    if (validUser && validPass) {
+      setIsAuthenticated(true);
+      setLoginError(false);
+    } else {
+      setLoginError(true);
     }
   };
 
@@ -97,6 +125,72 @@ const App: React.FC = () => {
     }
   ];
 
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100 p-6">
+        <div className="w-full max-w-md bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-500">
+          <div className="flex flex-col items-center mb-10">
+            <div className="p-5 bg-slate-900 text-white rounded-[2rem] shadow-xl mb-6">
+              <Lock size={40} />
+            </div>
+            <h1 className="text-4xl font-black text-slate-800 tracking-tighter uppercase text-center">Acceso Amazonia</h1>
+            <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.3em] mt-2">Sistema de Gestión Pro</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Usuario</label>
+              <div className="relative">
+                <User className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" size={20} />
+                <input 
+                  type="text" 
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="w-full pl-14 pr-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-all font-bold" 
+                  placeholder="Nombre de usuario"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Contraseña</label>
+              <div className="relative">
+                <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" size={20} />
+                <input 
+                  type="password" 
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-14 pr-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-all font-bold" 
+                  placeholder="••••"
+                  required
+                />
+              </div>
+            </div>
+
+            {loginError && (
+              <div className="flex items-center gap-2 text-red-500 bg-red-50 p-4 rounded-xl border border-red-100 animate-bounce">
+                <AlertCircle size={18} />
+                <span className="text-xs font-black uppercase">Credenciales incorrectas</span>
+              </div>
+            )}
+
+            <button 
+              type="submit" 
+              className="w-full bg-slate-900 text-white py-5 rounded-[2rem] font-black uppercase tracking-[0.2em] text-xs shadow-xl hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3"
+            >
+              <LogIn size={20} /> INICIAR SESIÓN
+            </button>
+          </form>
+          
+          <p className="mt-10 text-center text-[9px] font-black text-slate-300 uppercase tracking-widest italic">
+            Amazonia Veterinaria © 2024
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const renderContent = () => {
     switch (currentSystem) {
       case 'PETSHOP':
@@ -111,6 +205,14 @@ const App: React.FC = () => {
         return (
           <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-slate-50">
             <header className="text-center mb-12 animate-in fade-in slide-in-from-top-4 duration-700">
+              <div className="flex justify-center mb-4">
+                 <button 
+                  onClick={() => setIsAuthenticated(false)}
+                  className="text-[9px] font-black text-slate-300 hover:text-red-500 uppercase tracking-widest transition-colors"
+                >
+                  Cerrar Sesión
+                </button>
+              </div>
               <h1 className="text-5xl font-extrabold text-slate-800 mb-2 tracking-tighter">Veterinaria Amazonia</h1>
               <p className="text-slate-400 text-lg font-medium uppercase tracking-[0.3em] text-[10px]">Gestión Integral Profesional</p>
             </header>
