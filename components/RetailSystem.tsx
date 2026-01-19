@@ -2,9 +2,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   ArrowLeft, ShoppingCart, Search, Plus, Trash2, Edit3, Scan, 
-  Settings, Loader2, History, CreditCard, Ban, TrendingUp, PiggyBank, ArrowDownCircle, Package
+  Loader2, History, CreditCard, Ban, TrendingUp, PiggyBank, Package, X
 } from 'lucide-react';
-import { Product, Sale, Payment, ProductCategory } from '../types';
+import { Product, Sale, Payment } from '../types';
 import { supabase } from '../lib/supabase';
 
 interface RetailSystemProps {
@@ -12,12 +12,11 @@ interface RetailSystemProps {
   onBack: () => void;
 }
 
-type TabType = 'INVENTARIO' | 'VENDER' | 'HISTORIAL' | 'PAGOS' | 'CUENTAS';
+type TabType = 'VENDER' | 'INVENTARIO' | 'HISTORIAL' | 'FINANZAS';
 
 const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const [activeTab, setActiveTab] = useState<TabType>('VENDER');
   const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [cart, setCart] = useState<{ product: Product; qty: number }[]>([]);
   const [salesHistory, setSalesHistory] = useState<Sale[]>([]);
@@ -28,64 +27,82 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const [showProductModal, setShowProductModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('EFECTIVO');
 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
   const colors = type === 'PETSHOP' ? {
-    primary: 'bg-amber-500', hover: 'hover:bg-amber-600', text: 'text-amber-600', light: 'bg-amber-50'
+    primary: 'bg-amber-500', hover: 'hover:bg-amber-600', text: 'text-amber-600', border: 'border-amber-500'
   } : {
-    primary: 'bg-emerald-600', hover: 'hover:bg-emerald-700', text: 'text-emerald-600', light: 'bg-emerald-50'
+    primary: 'bg-emerald-600', hover: 'hover:bg-emerald-700', text: 'text-emerald-600', border: 'border-emerald-600'
   };
 
   useEffect(() => {
     fetchData();
-    const channel = supabase.channel(`retail-${type}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, fetchData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, fetchData)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const subProducts = supabase.channel(`products-${type}`).on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, fetchData).subscribe();
+    const subSales = supabase.channel(`sales-${type}`).on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, fetchData).subscribe();
+    return () => { 
+      supabase.removeChannel(subProducts);
+      supabase.removeChannel(subSales);
+    };
   }, [type]);
 
   const fetchData = async () => {
     setLoading(true);
-    const { data: prods } = await supabase.from('products').select('*').eq('category', type).order('name');
-    const { data: sales } = await supabase.from('sales').select('*, sale_items(*)').eq('system_type', type).order('created_at', { ascending: false });
-    const { data: payms } = await supabase.from('payments').select('*').eq('system_type', type).order('date', { ascending: false });
-    if (prods) setProducts(prods);
-    if (sales) setSalesHistory(sales);
-    if (payms) setPayments(payms);
-    setLoading(false);
+    try {
+      const { data: prods } = await supabase.from('products').select('*').eq('category', type).order('name');
+      const { data: sales } = await supabase.from('sales').select('*, sale_items(*)').eq('system_type', type).order('created_at', { ascending: false }).limit(50);
+      const { data: payms } = await supabase.from('payments').select('*').eq('system_type', type).order('date', { ascending: false });
+      
+      if (prods) setProducts(prods);
+      if (sales) setSalesHistory(sales);
+      if (payms) setPayments(payms);
+    } catch (e) {
+      console.error("Error al cargar datos", e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleBarcodeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!barcodeInput) return;
     const product = products.find(p => p.barcode === barcodeInput);
     if (product) {
       handleAddToCart(product);
       setBarcodeInput('');
     } else {
-      alert("Producto no encontrado");
       setBarcodeInput('');
     }
   };
 
   const handleAddToCart = (product: Product) => {
-    if (product.stock <= 0) return alert("Sin stock disponible");
+    if (product.stock <= 0) {
+      alert("⚠️ Sin stock disponible para " + product.name);
+      return;
+    }
     setCart(prev => {
       const existing = prev.find(item => item.product.id === product.id);
       if (existing) {
+        if (existing.qty + 1 > product.stock) {
+          alert("⚠️ No hay suficiente stock");
+          return prev;
+        }
         return prev.map(item => item.product.id === product.id ? { ...item, qty: item.qty + 1 } : item);
       }
       return [...prev, { product, qty: 1 }];
     });
+    setTimeout(() => barcodeInputRef.current?.focus(), 100);
   };
 
   const updateCartQty = (id: string, delta: number) => {
     setCart(prev => prev.map(item => {
       if (item.product.id === id) {
         const newQty = Math.max(0, item.qty + delta);
+        if (newQty > item.product.stock) {
+          alert("⚠️ Stock máximo alcanzado");
+          return item;
+        }
         return { ...item, qty: newQty };
       }
       return item;
@@ -93,6 +110,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   };
 
   const handleCheckout = async () => {
+    if (cart.length === 0) return;
     const total = cart.reduce((acc, curr) => acc + (curr.product.price * curr.qty), 0);
     setLoading(true);
     try {
@@ -106,7 +124,10 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
         sale_id: sale.id, product_id: c.product.id, name: c.product.name, quantity: c.qty, subtotal: c.product.price * c.qty
       }));
       
-      await supabase.from('sale_items').insert(items);
+      const { error: itemError } = await supabase.from('sale_items').insert(items);
+      if (itemError) throw itemError;
+
+      // Actualizar stock individualmente para mayor precisión
       for (const item of cart) {
         await supabase.from('products').update({ stock: item.product.stock - item.qty }).eq('id', item.product.id);
       }
@@ -114,12 +135,17 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       setCart([]);
       setShowCheckoutModal(false);
       fetchData();
-    } catch (err) { alert("Error al procesar venta"); }
-    finally { setLoading(false); }
+      alert("✅ Venta realizada correctamente");
+    } catch (err) { 
+      console.error(err);
+      alert("❌ Error al procesar venta"); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   const subtotalCart = cart.reduce((a, c) => a + (c.product.price * c.qty), 0);
-  const filteredInventory = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.barcode.includes(searchTerm));
+  const filteredInventory = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || (p.barcode && p.barcode.includes(searchTerm)));
 
   const stats = useMemo(() => {
     const validSales = salesHistory.filter(s => !s.is_voided);
@@ -133,10 +159,10 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       <nav className={`${colors.primary} text-white px-6 py-4 flex items-center justify-between shadow-lg sticky top-0 z-50`}>
         <div className="flex items-center gap-4">
           <button onClick={onBack} className="p-2 hover:bg-white/20 rounded-full transition-colors"><ArrowLeft size={24} /></button>
-          <h1 className="text-2xl font-black uppercase tracking-tighter">Amazonia {type}</h1>
+          <h1 className="text-2xl font-black uppercase tracking-tighter italic">Amazonia {type}</h1>
         </div>
-        <div className="flex bg-white/20 rounded-2xl p-1 gap-1">
-          {['VENDER', 'INVENTARIO', 'HISTORIAL', 'PAGOS', 'CUENTAS'].map(tab => (
+        <div className="hidden md:flex bg-white/20 rounded-2xl p-1 gap-1">
+          {['VENDER', 'INVENTARIO', 'HISTORIAL', 'FINANZAS'].map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab as TabType)} className={`px-4 py-2 rounded-xl font-black text-[10px] uppercase transition-all ${activeTab === tab ? 'bg-white text-slate-900 shadow-md' : 'hover:bg-white/10'}`}>{tab}</button>
           ))}
         </div>
@@ -144,11 +170,11 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
 
       <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
         {activeTab === 'VENDER' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in duration-500">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div className="space-y-6">
               <form onSubmit={handleBarcodeSubmit} className="relative group">
-                <Scan className={`absolute left-4 top-1/2 -translate-y-1/2 ${colors.text}`} size={24} />
-                <input ref={barcodeInputRef} type="text" value={barcodeInput} onChange={(e) => setBarcodeInput(e.target.value)} autoFocus className="w-full pl-14 p-6 bg-slate-900 text-white rounded-3xl outline-none text-xl font-black shadow-2xl focus:ring-4 focus:ring-blue-500/20 transition-all" placeholder="Escanear o ingresar código..." />
+                <Scan className={`absolute left-5 top-1/2 -translate-y-1/2 ${colors.text}`} size={24} />
+                <input ref={barcodeInputRef} type="text" value={barcodeInput} onChange={(e) => setBarcodeInput(e.target.value)} autoFocus className="w-full pl-16 p-6 bg-slate-900 text-white rounded-3xl outline-none text-xl font-black shadow-2xl focus:ring-4 focus:ring-blue-500/20 transition-all placeholder:text-slate-600" placeholder="Escanear Producto..." />
               </form>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
                 {products.filter(p => p.stock > 0).map(p => (
@@ -162,8 +188,9 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                 ))}
               </div>
             </div>
+
             <div className="bg-white p-8 rounded-[3rem] shadow-2xl border-t-8 border-slate-900 h-fit sticky top-28">
-              <div className="flex items-center gap-3 mb-8"><ShoppingCart size={24} className="text-slate-400" /><h3 className="text-2xl font-black uppercase tracking-tight">Carrito de Compras</h3></div>
+              <div className="flex items-center gap-3 mb-8"><ShoppingCart size={24} className="text-slate-400" /><h3 className="text-2xl font-black uppercase tracking-tight">Caja {type}</h3></div>
               <div className="space-y-4 max-h-[40vh] overflow-y-auto mb-8 pr-2 custom-scrollbar">
                 {cart.length === 0 ? (
                   <div className="text-center py-16 opacity-10">
@@ -171,16 +198,16 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                     <p className="font-black uppercase text-sm">Esperando productos...</p>
                   </div>
                 ) : cart.map(item => (
-                  <div key={item.product.id} className="p-4 bg-slate-50 rounded-2xl flex justify-between items-center border border-slate-100 animate-in slide-in-from-right-4">
+                  <div key={item.product.id} className="p-4 bg-slate-50 rounded-2xl flex justify-between items-center border border-slate-100">
                     <div className="flex-1 mr-4">
                       <p className="font-black text-[11px] uppercase truncate text-slate-700">{item.product.name}</p>
                       <p className="text-[10px] font-bold text-slate-400">${item.product.price} c/u</p>
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="flex items-center bg-white border-2 rounded-xl p-1 shadow-sm">
-                        <button onClick={() => updateCartQty(item.product.id, -1)} className="w-8 h-8 flex items-center justify-center font-black text-red-500 hover:bg-red-50">-</button>
+                        <button onClick={() => updateCartQty(item.product.id, -1)} className="w-8 h-8 flex items-center justify-center font-black text-red-500">-</button>
                         <span className="w-10 text-center text-sm font-black">{item.qty}</span>
-                        <button onClick={() => updateCartQty(item.product.id, 1)} className="w-8 h-8 flex items-center justify-center font-black text-blue-500 hover:bg-blue-50">+</button>
+                        <button onClick={() => updateCartQty(item.product.id, 1)} className="w-8 h-8 flex items-center justify-center font-black text-blue-500">+</button>
                       </div>
                       <p className="font-black text-lg min-w-[80px] text-right text-slate-900">${(item.qty * item.product.price).toFixed(2)}</p>
                     </div>
@@ -190,26 +217,26 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
               <div className="border-t-2 border-dashed pt-8">
                 <div className="flex justify-between items-end mb-8">
                   <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Total a Cobrar</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Monto Total</p>
                     <div className="text-6xl font-black tracking-tighter text-slate-900">${subtotalCart.toLocaleString()}</div>
                   </div>
                 </div>
-                <button onClick={() => setShowCheckoutModal(true)} disabled={cart.length === 0} className="w-full bg-slate-900 text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-20 disabled:scale-100">FINALIZAR VENTA</button>
+                <button onClick={() => setShowCheckoutModal(true)} disabled={cart.length === 0} className="w-full bg-slate-900 text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-20">FINALIZAR COBRO</button>
               </div>
             </div>
           </div>
         )}
 
         {activeTab === 'INVENTARIO' && (
-          <div className="space-y-6 animate-in fade-in">
-            <div className="flex gap-4">
+          <div className="space-y-6">
+            <div className="flex flex-col md:flex-row gap-4">
               <div className="relative flex-1">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-                <input type="text" placeholder="Buscar por nombre o código..." className="w-full pl-12 p-4 rounded-2xl border shadow-sm outline-none focus:ring-2 focus:ring-blue-500/20" onChange={(e) => setSearchTerm(e.target.value)} />
+                <input type="text" placeholder="Buscar por nombre o código..." className="w-full pl-12 p-4 rounded-2xl border shadow-sm outline-none" onChange={(e) => setSearchTerm(e.target.value)} />
               </div>
-              <button onClick={() => { setEditingProduct(null); setShowProductModal(true); }} className={`${colors.primary} text-white px-8 rounded-2xl font-black uppercase text-xs shadow-lg hover:scale-105 transition-all`}>+ Nuevo Producto</button>
+              <button onClick={() => { setEditingProduct(null); setShowProductModal(true); }} className={`${colors.primary} text-white px-8 py-4 rounded-2xl font-black uppercase text-xs shadow-lg`}>+ Nuevo Producto</button>
             </div>
-            <div className="bg-white rounded-[2rem] border overflow-hidden shadow-sm">
+            <div className="bg-white rounded-[2rem] border overflow-hidden shadow-sm overflow-x-auto">
               <table className="w-full text-left">
                 <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b">
                   <tr><th className="p-6">Producto</th><th className="p-6">Código</th><th className="p-6">Stock</th><th className="p-6">Venta</th><th className="p-6 text-right">Acciones</th></tr>
@@ -218,12 +245,12 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                   {filteredInventory.map(p => (
                     <tr key={p.id} className="hover:bg-slate-50/50 group transition-colors">
                       <td className="p-6"><p className="font-black text-slate-800 uppercase text-xs">{p.name}</p></td>
-                      <td className="p-6 font-mono text-[10px] text-slate-400">{p.barcode}</td>
+                      <td className="p-6 font-mono text-[10px] text-slate-400">{p.barcode || '---'}</td>
                       <td className="p-6"><span className={`font-black text-lg ${p.stock <= p.min_stock ? 'text-red-500' : 'text-slate-900'}`}>{p.stock}</span></td>
                       <td className="p-6 font-black text-slate-900">${p.price}</td>
                       <td className="p-6 text-right space-x-2">
-                        <button onClick={() => { setEditingProduct(p); setShowProductModal(true); }} className="p-2 text-blue-400 hover:bg-blue-50 rounded-xl transition-colors"><Edit3 size={18}/></button>
-                        <button onClick={async () => { if(confirm("¿Eliminar?")) await supabase.from('products').delete().eq('id', p.id); fetchData(); }} className="p-2 text-red-300 hover:bg-red-50 hover:text-red-500 rounded-xl transition-colors"><Trash2 size={18}/></button>
+                        <button onClick={() => { setEditingProduct(p); setShowProductModal(true); }} className="p-2 text-blue-400 hover:bg-blue-50 rounded-xl"><Edit3 size={18}/></button>
+                        <button onClick={async () => { if(confirm("¿Eliminar " + p.name + "?")) await supabase.from('products').delete().eq('id', p.id); fetchData(); }} className="p-2 text-red-300 hover:bg-red-50 hover:text-red-500 rounded-xl"><Trash2 size={18}/></button>
                       </td>
                     </tr>
                   ))}
@@ -233,28 +260,90 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
           </div>
         )}
 
-        {/* Los demás estados CUENTAS, PAGOS, HISTORIAL siguen el mismo patrón profesional */}
+        {activeTab === 'HISTORIAL' && (
+          <div className="space-y-6">
+            {salesHistory.length === 0 ? (
+               <div className="text-center py-20 bg-white rounded-[3rem] border-2 border-dashed border-slate-200 opacity-50">
+                  <p className="font-black uppercase tracking-widest text-slate-400">Sin ventas registradas</p>
+               </div>
+            ) : salesHistory.map(sale => (
+              <div key={sale.id} className={`bg-white p-6 rounded-[2rem] border-2 ${sale.is_voided ? 'opacity-40 border-red-100' : 'border-slate-50 shadow-sm'}`}>
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase">{new Date(sale.created_at).toLocaleString()}</p>
+                    <h4 className="text-xl font-black text-slate-800 uppercase">${sale.total.toLocaleString()}</h4>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1 bg-slate-100 rounded-full text-[9px] font-black uppercase tracking-widest">{sale.payment_method}</span>
+                    {!sale.is_voided && (
+                      <button onClick={async () => {
+                        const code = prompt("🔑 Código de seguridad para anular:");
+                        if(code === '1960') {
+                           const res = confirm("¿Desea reintegrar el stock de los productos?");
+                           if(res && sale.sale_items) {
+                              for(const item of sale.sale_items) {
+                                 // Reintento simple de devolver stock
+                                 const { data: currentP } = await supabase.from('products').select('stock').eq('id', item.product_id).single();
+                                 if(currentP) await supabase.from('products').update({ stock: currentP.stock + item.quantity }).eq('id', item.product_id);
+                              }
+                           }
+                           await supabase.from('sales').update({ is_voided: true }).eq('id', sale.id);
+                           fetchData();
+                        }
+                      }} className="p-2 text-red-400 hover:bg-red-50 rounded-xl transition-colors"><Ban size={18}/></button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {sale.sale_items?.map((item: any) => (
+                    <span key={item.id} className="text-[10px] font-bold text-slate-500 bg-slate-50 px-3 py-1 rounded-lg border border-slate-100">{item.quantity}x {item.name}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {activeTab === 'FINANZAS' && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+             <div className="bg-emerald-600 p-10 rounded-[3rem] text-white shadow-xl">
+                <TrendingUp size={32} className="mb-4 opacity-50" />
+                <p className="text-[11px] font-black uppercase tracking-widest mb-1">Caja Total</p>
+                <h3 className="text-5xl font-black tracking-tighter">${stats.totalVentas.toLocaleString()}</h3>
+             </div>
+             <div className="bg-rose-500 p-10 rounded-[3rem] text-white shadow-xl">
+                <X size={32} className="mb-4 opacity-50" />
+                <p className="text-[11px] font-black uppercase tracking-widest mb-1">Gastos</p>
+                <h3 className="text-5xl font-black tracking-tighter">${stats.totalEgresos.toLocaleString()}</h3>
+             </div>
+             <div className="bg-slate-900 p-10 rounded-[3rem] text-white shadow-xl">
+                <PiggyBank size={32} className="mb-4 opacity-50" />
+                <p className="text-[11px] font-black uppercase tracking-widest mb-1">Balance Ganancia</p>
+                <h3 className="text-5xl font-black tracking-tighter">${stats.balance.toLocaleString()}</h3>
+             </div>
+          </div>
+        )}
       </main>
 
-      {/* MODAL DE COBRO */}
+      {/* MODAL COBRO */}
       {showCheckoutModal && (
         <div className="fixed inset-0 bg-slate-900/60 z-[120] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-[3rem] w-full max-w-sm p-10 shadow-2xl scale-in-center">
-            <h2 className="text-2xl font-black mb-8 uppercase text-center tracking-tighter">Confirmar Pago</h2>
-            <div className="grid grid-cols-1 gap-3 mb-8">
+          <div className="bg-white rounded-[3rem] w-full max-w-sm p-10 shadow-2xl animate-in zoom-in-95">
+            <h2 className="text-2xl font-black mb-8 uppercase text-center tracking-tighter">Finalizar Venta</h2>
+            <div className="space-y-3 mb-8">
               {['EFECTIVO', 'TRANSFERENCIA', 'QR'].map(m => (
-                <button key={m} onClick={() => setSelectedPaymentMethod(m)} className={`p-5 rounded-2xl border-2 font-black transition-all flex items-center justify-between ${selectedPaymentMethod === m ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-100 text-slate-400 hover:bg-slate-50'}`}>
+                <button key={m} onClick={() => setSelectedPaymentMethod(m)} className={`w-full p-5 rounded-2xl border-2 font-black transition-all flex items-center justify-between ${selectedPaymentMethod === m ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-100 text-slate-400 hover:bg-slate-50'}`}>
                   {m}
-                  {selectedPaymentMethod === m && <div className="w-3 h-3 bg-blue-600 rounded-full shadow-lg" />}
+                  {selectedPaymentMethod === m && <div className="w-2 h-2 bg-blue-600 rounded-full"/>}
                 </button>
               ))}
             </div>
-            <div className="bg-slate-900 p-6 rounded-3xl mb-8 text-center">
-              <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Monto Total</p>
-              <div className="text-4xl font-black text-white">${subtotalCart.toLocaleString()}</div>
+            <div className="bg-slate-900 p-6 rounded-3xl mb-8 text-center shadow-lg">
+               <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Monto a Cobrar</p>
+               <div className="text-4xl font-black text-white">${subtotalCart.toLocaleString()}</div>
             </div>
-            <button onClick={handleCheckout} className="w-full bg-blue-600 text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all">FINALIZAR COBRO</button>
-            <button onClick={() => setShowCheckoutModal(false)} className="w-full mt-6 text-[11px] font-black text-slate-300 uppercase tracking-widest hover:text-slate-500">Cerrar</button>
+            <button onClick={handleCheckout} className="w-full bg-blue-600 text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all active:scale-95">CONFIRMAR VENTA</button>
+            <button onClick={() => setShowCheckoutModal(false)} className="w-full mt-6 text-[10px] font-black text-slate-300 uppercase tracking-widest hover:text-slate-500 transition-colors">Volver</button>
           </div>
         </div>
       )}
@@ -263,7 +352,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       {showProductModal && (
         <div className="fixed inset-0 bg-slate-900/60 z-[120] flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-[3rem] w-full max-w-md p-10 shadow-2xl">
-            <h2 className="text-2xl font-black mb-8 uppercase">{editingProduct ? 'Editar' : 'Nuevo'} Producto</h2>
+            <h2 className="text-2xl font-black mb-8 uppercase tracking-tighter italic">{editingProduct ? 'Editar' : 'Nuevo'} Producto</h2>
             <form onSubmit={async (e) => {
               e.preventDefault();
               const f = new FormData(e.currentTarget);
@@ -278,29 +367,48 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
               else await supabase.from('products').insert(data);
               setShowProductModal(false); fetchData();
             }} className="space-y-4">
-              <input name="name" defaultValue={editingProduct?.name} required placeholder="Nombre del producto" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" />
-              <div className="flex gap-2">
-                <input name="barcode" defaultValue={editingProduct?.barcode} placeholder="Código de barras" className="flex-1 p-4 bg-slate-50 border rounded-2xl font-mono text-sm" />
-                <button type="button" className="bg-slate-900 text-white px-4 rounded-2xl"><Scan size={20}/></button>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase ml-2 text-slate-400">Nombre</label>
+                <input name="name" defaultValue={editingProduct?.name} required placeholder="Nombre del producto" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-100" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase ml-2 text-slate-400">Código de Barras</label>
+                <div className="flex gap-2">
+                  <input name="barcode" defaultValue={editingProduct?.barcode} placeholder="Escanear o Escribir..." className="flex-1 p-4 bg-slate-50 border rounded-2xl font-mono text-sm outline-none focus:ring-2 focus:ring-blue-100" />
+                  <div className="bg-slate-900 text-white p-4 rounded-2xl flex items-center shadow-lg"><Scan size={20}/></div>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <input name="stock" type="number" defaultValue={editingProduct?.stock || 0} required placeholder="Stock Actual" className="w-full p-4 bg-slate-50 border rounded-2xl font-black" />
-                <input name="min_stock" type="number" defaultValue={editingProduct?.min_stock || 5} required placeholder="Stock Mínimo" className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-red-500" />
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase ml-2 text-slate-400">Stock</label>
+                  <input name="stock" type="number" defaultValue={editingProduct?.stock || 0} required placeholder="0" className="w-full p-4 bg-slate-50 border rounded-2xl font-black outline-none focus:ring-2 focus:ring-blue-100" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase ml-2 text-slate-400">Min. Aviso</label>
+                  <input name="min_stock" type="number" defaultValue={editingProduct?.min_stock || 5} required placeholder="5" className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-red-500 outline-none focus:ring-2 focus:ring-blue-100" />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <input name="cost" type="number" step="0.01" defaultValue={editingProduct?.cost || 0} required placeholder="Costo $" className="w-full p-4 bg-slate-50 border rounded-2xl font-black" />
-                <input name="margin" type="number" defaultValue={editingProduct?.margin || 30} required placeholder="Margen %" className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-blue-600" />
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase ml-2 text-slate-400">Costo $</label>
+                  <input name="cost" type="number" step="0.01" defaultValue={editingProduct?.cost || 0} required placeholder="0.00" className="w-full p-4 bg-slate-50 border rounded-2xl font-black outline-none focus:ring-2 focus:ring-blue-100" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase ml-2 text-slate-400">Margen %</label>
+                  <input name="margin" type="number" defaultValue={editingProduct?.margin || 30} required placeholder="30" className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-blue-600 outline-none focus:ring-2 focus:ring-blue-100" />
+                </div>
               </div>
-              <button type="submit" className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black uppercase tracking-widest mt-4">Guardar Producto</button>
+              <button type="submit" className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black uppercase tracking-widest mt-4 shadow-xl hover:scale-[1.02] active:scale-95 transition-all">Guardar Producto</button>
+              <button type="button" onClick={() => setShowProductModal(false)} className="w-full text-[10px] font-black text-slate-300 uppercase py-2 hover:text-slate-500">Cerrar</button>
             </form>
           </div>
         </div>
       )}
 
       {loading && (
-        <div className="fixed bottom-10 right-10 bg-white p-5 rounded-3xl shadow-2xl flex items-center gap-4 border-2 border-slate-100 z-[1000] animate-bounce">
+        <div className="fixed bottom-10 right-10 bg-white p-5 rounded-3xl shadow-2xl flex items-center gap-4 border-2 z-[1000] animate-bounce">
           <Loader2 className="animate-spin text-blue-500" size={24} />
-          <span className="font-black text-[11px] uppercase text-slate-500 tracking-tighter">Sincronizando Amazonia...</span>
+          <span className="font-black text-[10px] uppercase text-slate-500">Actualizando Amazonia...</span>
         </div>
       )}
     </div>

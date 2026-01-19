@@ -11,7 +11,6 @@ export interface Product {
   margin: number;
   price: number;
   category: 'PETSHOP' | 'MATEANDO' | 'CONSULTORIO';
-  product_category?: string;
 }
 
 export interface ProductCategory {
@@ -38,13 +37,8 @@ export interface Payment {
   id: string;
   created_at: string;
   description: string;
-  amount: number; 
-  total_amount: number;
-  paid_amount: number;
-  remaining_amount: number;
-  status: 'COMPLETO' | 'PENDIENTE';
+  amount: number;
   date: string;
-  time: string;
   type: 'PROVEEDOR' | 'SERVICIO' | 'EMPLEADO' | 'RETIRO' | 'OTRO';
   system_type: 'PETSHOP' | 'MATEANDO' | 'CONSULTORIO';
   payment_method: string;
@@ -72,7 +66,6 @@ export interface Sale {
   created_at: string;
   total: number;
   payment_method: string;
-  billing_type: 'FACTURA' | 'COMPROBANTE';
   system_type: 'PETSHOP' | 'MATEANDO';
   is_voided: boolean;
   sale_items?: SaleItem[];
