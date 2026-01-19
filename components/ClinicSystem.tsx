@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ArrowLeft, Dog, Plus, X, Trash2, ShoppingCart, Activity, 
   Search, Printer, Edit3, Settings, ArrowDownCircle, 
-  ClipboardList, Thermometer, Weight, Save, Loader2
+  ClipboardList, Thermometer, Weight, Save, Loader2, Package, Layers, Info
 } from 'lucide-react';
 import { Appointment, Product, ProductCategory, Supplier, Payment, ClinicalConsultation } from '../types';
 import { supabase } from '../lib/supabase';
@@ -135,16 +135,23 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     try {
+      // Solución error 'time' nulo: Enviamos la hora actual
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('es-AR', { hour12: false });
+
       const { error } = await supabase.from('payments').insert({
         description: formData.get('description') as string,
         amount: Number(formData.get('amount')) || 0,
         date: formData.get('date') as string,
-        system_type: 'CONSULTORIO'
+        time: timeStr,
+        system_type: 'CONSULTORIO',
+        payment_method: 'EFECTIVO', // Valor por defecto para consultorio
+        type: 'OTRO'
       });
       if (error) throw error;
       setShowPaymentModal(false);
       fetchData();
-    } catch (err: any) { alert("Error: " + err.message); }
+    } catch (err: any) { alert("Error al guardar gasto: " + err.message); }
   };
 
   const handleSaveConsultation = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -311,17 +318,31 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
               <button onClick={() => setShowCategoryModal(true)} className="bg-slate-100 p-4 rounded-3xl font-black text-[10px] uppercase"><Settings size={16}/></button>
               <button onClick={() => { setEditingProduct(null); setShowProductModal(true); }} className="bg-sky-600 text-white px-8 py-4 rounded-3xl font-black uppercase text-xs"><Plus /> NUEVO INSUMO</button>
             </div>
-            <div className="bg-white rounded-[3rem] border overflow-hidden">
+            <div className="bg-white rounded-[3rem] border overflow-hidden shadow-sm">
               <table className="w-full text-left">
-                <thead className="bg-slate-50 border-b text-[10px] font-black uppercase"><tr className="px-8"><th className="px-8 py-6">Insumo</th><th className="px-8 py-6">Stock</th><th className="px-8 py-6 text-right">Acción</th></tr></thead>
-                <tbody className="divide-y">
+                <thead className="bg-slate-50 border-b text-[10px] font-black uppercase tracking-[0.1em] text-slate-400">
+                  <tr>
+                    <th className="px-8 py-6">Nombre del Insumo</th>
+                    <th className="px-8 py-6">Categoría</th>
+                    <th className="px-8 py-6">Stock Actual</th>
+                    <th className="px-8 py-6 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
                   {filteredInventory.map(p => (
-                    <tr key={p.id} className="hover:bg-slate-50">
-                      <td className="px-8 py-5 font-black uppercase text-xs">{p.name}</td>
-                      <td className={`px-8 py-5 font-black ${p.stock <= p.min_stock ? 'text-red-500' : 'text-slate-900'}`}>{p.stock}</td>
-                      <td className="px-8 py-5 text-right flex justify-end gap-2"><button onClick={() => { setEditingProduct(p); setShowProductModal(true); }} className="text-sky-500"><Edit3 size={18} /></button><button onClick={async () => { if(confirm("¿Eliminar?")) { await supabase.from('products').delete().eq('id', p.id); fetchData(); } }} className="text-red-300"><Trash2 size={18}/></button></td>
+                    <tr key={p.id} className="hover:bg-slate-50/50 group transition-colors">
+                      <td className="px-8 py-5 font-black uppercase text-xs text-slate-700">{p.name}</td>
+                      <td className="px-8 py-5 font-bold uppercase text-[10px] text-slate-400">{p.product_category || 'SIN CATEGORÍA'}</td>
+                      <td className={`px-8 py-5 font-black text-sm ${p.stock <= p.min_stock ? 'text-red-500 bg-red-50/30' : 'text-slate-900'}`}>{p.stock} <span className="text-[10px] text-slate-300 ml-1 font-bold">U.</span></td>
+                      <td className="px-8 py-5 text-right flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => { setEditingProduct(p); setShowProductModal(true); }} className="p-2 text-sky-500 hover:bg-sky-50 rounded-lg transition-colors"><Edit3 size={18} /></button>
+                        <button onClick={async () => { if(confirm("¿Eliminar?")) { await supabase.from('products').delete().eq('id', p.id); fetchData(); } }} className="p-2 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18}/></button>
+                      </td>
                     </tr>
                   ))}
+                  {filteredInventory.length === 0 && (
+                    <tr><td colSpan={4} className="p-20 text-center text-slate-300 font-black uppercase italic tracking-widest">Sin insumos encontrados</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -348,10 +369,20 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
             <div className="flex justify-between items-center"><h2 className="text-3xl font-black uppercase">Gastos</h2><button onClick={() => setShowPaymentModal(true)} className="bg-red-500 text-white px-8 py-4 rounded-3xl font-black text-xs uppercase"><ArrowDownCircle size={18} /> REGISTRAR GASTO</button></div>
             <div className="bg-white rounded-[3rem] border overflow-hidden">
               <table className="w-full text-left">
-                <thead className="bg-slate-50 border-b text-[10px] font-black uppercase"><tr><th className="px-8 py-6">Descripción</th><th className="px-8 py-6">Monto</th><th className="px-8 py-6 text-right">Acción</th></tr></thead>
-                <tbody className="divide-y">
+                <thead className="bg-slate-50 border-b text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  <tr>
+                    <th className="px-8 py-6">Descripción</th>
+                    <th className="px-8 py-6">Monto</th>
+                    <th className="px-8 py-6 text-right">Acción</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
                   {payments.map(p => (
-                    <tr key={p.id} className="hover:bg-slate-50"><td className="px-8 py-5 font-black uppercase">{p.description}</td><td className="px-8 py-5 font-black text-red-500">-${p.amount}</td><td className="px-8 py-5 text-right"><button onClick={async () => { if(confirm("¿Borrar?")) { await supabase.from('payments').delete().eq('id', p.id); fetchData(); } }} className="text-red-300"><Trash2 size={18}/></button></td></tr>
+                    <tr key={p.id} className="hover:bg-slate-50 group">
+                      <td className="px-8 py-5 font-black uppercase text-xs text-slate-700">{p.description} <span className="block text-[9px] text-slate-400 font-bold mt-0.5">{p.date} • {p.time || '--:--'}</span></td>
+                      <td className="px-8 py-5 font-black text-red-500">-${p.amount}</td>
+                      <td className="px-8 py-5 text-right"><button onClick={async () => { if(confirm("¿Borrar?")) { await supabase.from('payments').delete().eq('id', p.id); fetchData(); } }} className="text-red-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={18}/></button></td>
+                    </tr>
                   ))}
                 </tbody>
               </table>
@@ -391,20 +422,65 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
       )}
 
       {showProductModal && (
-        <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-md">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-8 shadow-2xl animate-in zoom-in-95">
-            <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-black uppercase">{editingProduct ? 'Editar' : 'Nuevo'} Insumo</h2><button onClick={() => { setShowProductModal(false); setEditingProduct(null); }}><X /></button></div>
-            <form onSubmit={handleSaveProduct} className="grid grid-cols-2 gap-4">
-              <input name="name" defaultValue={editingProduct?.name} required placeholder="Nombre Insumo" className="col-span-2 p-4 bg-slate-50 border rounded-2xl font-bold" />
-              <select name="product_category" defaultValue={editingProduct?.product_category} className="col-span-2 p-4 bg-slate-50 border rounded-2xl font-bold uppercase text-xs">
-                <option value="">SIN CATEGORÍA</option>
-                {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-              </select>
-              <input name="stock" type="number" defaultValue={editingProduct?.stock || 0} required placeholder="Stock" className="p-4 bg-slate-50 border rounded-2xl font-black" />
-              <input name="min_stock" type="number" defaultValue={editingProduct?.min_stock || 5} placeholder="Mínimo" className="p-4 bg-slate-50 border rounded-2xl font-black" />
-              <input name="cost" type="number" defaultValue={editingProduct?.cost || 0} placeholder="Costo $" className="p-4 bg-slate-50 border rounded-2xl font-bold" />
-              <input name="price" type="number" defaultValue={editingProduct?.price || 0} placeholder="Cobro $" className="p-4 bg-slate-50 border rounded-2xl font-bold" />
-              <button type="submit" className="col-span-2 bg-sky-600 text-white py-5 rounded-[1.5rem] font-black uppercase tracking-widest mt-4">GUARDAR</button>
+        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center p-4 backdrop-blur-md">
+          <div className="bg-white rounded-[3rem] w-full max-w-lg p-10 shadow-2xl animate-in zoom-in-95 overflow-hidden">
+            <div className="flex justify-between items-center mb-8">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-sky-500 text-white rounded-2xl shadow-lg shadow-sky-200">
+                  <Package size={24} />
+                </div>
+                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-800">
+                  {editingProduct ? 'Editar Insumo' : 'Nuevo Insumo'}
+                </h2>
+              </div>
+              <button onClick={() => { setShowProductModal(false); setEditingProduct(null); }} className="p-2 hover:bg-slate-100 rounded-full transition-all">
+                <X />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveProduct} className="space-y-6">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest flex items-center gap-2">
+                   <Info size={12}/> Nombre del Producto / Medicamento
+                </label>
+                <input name="name" defaultValue={editingProduct?.name} required placeholder="Ej: Antibiótico 500mg" className="w-full p-4 bg-slate-50 border rounded-[1.5rem] font-bold outline-none focus:ring-4 focus:ring-sky-500/10 transition-all border-slate-100 focus:border-sky-300" />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest flex items-center gap-2">
+                   <Layers size={12}/> Categoría de Insumo
+                </label>
+                <select name="product_category" defaultValue={editingProduct?.product_category} className="w-full p-4 bg-slate-50 border rounded-[1.5rem] font-black uppercase text-[11px] outline-none focus:ring-4 focus:ring-sky-500/10 transition-all border-slate-100 focus:border-sky-300 appearance-none">
+                  <option value="">SIN CATEGORÍA</option>
+                  {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">Stock Actual</label>
+                  <input name="stock" type="number" defaultValue={editingProduct?.stock || 0} required className="w-full p-4 bg-slate-50 border rounded-[1.5rem] font-black text-xl outline-none border-slate-100" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">Mínimo Alerta</label>
+                  <input name="min_stock" type="number" defaultValue={editingProduct?.min_stock || 5} className="w-full p-4 bg-slate-50 border rounded-[1.5rem] font-black text-xl outline-none border-slate-100" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 p-6 bg-slate-50 rounded-[2rem] border border-dashed border-slate-200">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Costo Inversión ($)</label>
+                  <input name="cost" type="number" defaultValue={editingProduct?.cost || 0} className="w-full p-4 bg-white border rounded-[1.2rem] font-bold text-slate-600 outline-none" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase text-sky-600 tracking-widest">Precio Cobro ($)</label>
+                  <input name="price" type="number" defaultValue={editingProduct?.price || 0} className="w-full p-4 bg-white border border-sky-200 rounded-[1.2rem] font-black text-sky-700 outline-none" />
+                </div>
+              </div>
+
+              <button type="submit" className="w-full bg-slate-900 text-white py-5 rounded-[2rem] font-black uppercase tracking-[0.2em] text-xs shadow-xl shadow-slate-200 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3">
+                <Save size={18}/> GUARDAR INVENTARIO
+              </button>
             </form>
           </div>
         </div>
