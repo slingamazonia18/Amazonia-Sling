@@ -127,26 +127,26 @@ const App: React.FC = () => {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100 p-6">
-        <div className="w-full max-w-md bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-500">
+      <div className="min-h-screen flex items-center justify-center bg-emerald-600 p-6">
+        <div className="w-full max-w-md bg-white p-10 rounded-[3.5rem] shadow-[0_35px_60px_-15px_rgba(0,0,0,0.3)] border-4 border-amber-400 animate-in zoom-in-95 duration-500">
           <div className="flex flex-col items-center mb-10">
-            <div className="p-5 bg-slate-900 text-white rounded-[2rem] shadow-xl mb-6">
-              <Lock size={40} />
+            <div className="p-6 bg-emerald-500 text-white rounded-[2.5rem] shadow-xl mb-6 ring-4 ring-amber-200">
+              <Lock size={45} />
             </div>
-            <h1 className="text-4xl font-black text-slate-800 tracking-tighter uppercase text-center">Acceso Amazonia</h1>
-            <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.3em] mt-2">Sistema de Gestión Pro</p>
+            <h1 className="text-4xl font-black text-slate-800 tracking-tighter uppercase text-center italic">Acceso Amazonia</h1>
+            <p className="text-emerald-600 text-[10px] font-black uppercase tracking-[0.3em] mt-2">Sistema de Gestión Pro</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Usuario</label>
               <div className="relative">
-                <User className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" size={20} />
+                <User className="absolute left-5 top-1/2 -translate-y-1/2 text-emerald-400" size={20} />
                 <input 
                   type="text" 
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full pl-14 pr-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-all font-bold" 
+                  className="w-full pl-14 pr-6 py-5 bg-emerald-50 border-2 border-transparent rounded-3xl outline-none focus:ring-4 focus:ring-amber-400/20 focus:border-emerald-500 transition-all font-bold placeholder:text-emerald-200" 
                   placeholder="Nombre de usuario"
                   required
                 />
@@ -156,12 +156,12 @@ const App: React.FC = () => {
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Contraseña</label>
               <div className="relative">
-                <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" size={20} />
+                <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-emerald-400" size={20} />
                 <input 
                   type="password" 
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-14 pr-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-all font-bold" 
+                  className="w-full pl-14 pr-6 py-5 bg-emerald-50 border-2 border-transparent rounded-3xl outline-none focus:ring-4 focus:ring-amber-400/20 focus:border-emerald-500 transition-all font-bold placeholder:text-emerald-200" 
                   placeholder="••••"
                   required
                 />
@@ -169,7 +169,7 @@ const App: React.FC = () => {
             </div>
 
             {loginError && (
-              <div className="flex items-center gap-2 text-red-500 bg-red-50 p-4 rounded-xl border border-red-100 animate-bounce">
+              <div className="flex items-center gap-2 text-red-600 bg-red-50 p-4 rounded-2xl border-2 border-red-100 animate-bounce">
                 <AlertCircle size={18} />
                 <span className="text-xs font-black uppercase">Credenciales incorrectas</span>
               </div>
@@ -177,15 +177,18 @@ const App: React.FC = () => {
 
             <button 
               type="submit" 
-              className="w-full bg-slate-900 text-white py-5 rounded-[2rem] font-black uppercase tracking-[0.2em] text-xs shadow-xl hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3"
+              className="w-full bg-amber-400 hover:bg-amber-500 text-slate-900 py-6 rounded-[2.5rem] font-black uppercase tracking-[0.2em] text-sm shadow-xl hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 border-b-4 border-amber-600"
             >
-              <LogIn size={20} /> INICIAR SESIÓN
+              <LogIn size={22} /> INICIAR SESIÓN
             </button>
           </form>
           
-          <p className="mt-10 text-center text-[9px] font-black text-slate-300 uppercase tracking-widest italic">
-            Amazonia Veterinaria © 2024
-          </p>
+          <div className="mt-10 flex flex-col items-center">
+            <div className="h-1 w-12 bg-emerald-100 rounded-full mb-4"></div>
+            <p className="text-center text-[9px] font-black text-slate-300 uppercase tracking-widest italic">
+              Amazonia Veterinaria © 2024
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -213,8 +216,8 @@ const App: React.FC = () => {
                   Cerrar Sesión
                 </button>
               </div>
-              <h1 className="text-5xl font-extrabold text-slate-800 mb-2 tracking-tighter">Veterinaria Amazonia</h1>
-              <p className="text-slate-400 text-lg font-medium uppercase tracking-[0.3em] text-[10px]">Gestión Integral Profesional</p>
+              <h1 className="text-5xl font-extrabold text-slate-800 mb-2 tracking-tighter italic uppercase">Veterinaria Amazonia</h1>
+              <p className="text-emerald-600 text-lg font-medium uppercase tracking-[0.3em] text-[10px] font-black">Gestión Integral Profesional</p>
             </header>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 w-full max-w-7xl">
@@ -227,18 +230,18 @@ const App: React.FC = () => {
                   <div className="mb-6 p-5 bg-white/20 rounded-full group-hover:scale-110 transition-transform">
                     {sys.icon}
                   </div>
-                  <h2 className="text-2xl font-black mb-2 tracking-tight">{sys.title}</h2>
-                  <p className="text-white/80 text-xs font-medium">{sys.description}</p>
+                  <h2 className="text-2xl font-black mb-2 tracking-tight uppercase">{sys.title}</h2>
+                  <p className="text-white/80 text-xs font-medium uppercase tracking-widest">{sys.description}</p>
                 </button>
               ))}
             </div>
 
-            <div className="mt-12 w-full max-w-4xl bg-white p-10 rounded-[4rem] shadow-sm border">
+            <div className="mt-12 w-full max-w-4xl bg-white p-10 rounded-[4rem] shadow-sm border border-slate-100">
               <div className="flex items-center gap-3 mb-8">
-                <div className="p-2.5 bg-slate-900 text-white rounded-2xl shadow-lg">
+                <div className="p-2.5 bg-emerald-600 text-white rounded-2xl shadow-lg">
                   <Calculator size={24} />
                 </div>
-                <h3 className="text-2xl font-black text-slate-800 tracking-tighter uppercase">Estado de Fondos (Reposición)</h3>
+                <h3 className="text-2xl font-black text-slate-800 tracking-tighter uppercase italic">Estado de Fondos (Reposición)</h3>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="p-8 bg-emerald-50 rounded-[2.5rem] border border-emerald-100 shadow-inner">
