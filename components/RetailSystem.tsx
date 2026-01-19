@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   ArrowLeft, Package, ShoppingCart, Users, TrendingUp, Search, Plus, 
   Trash2, Printer, FileText, PhoneCall, Save, Barcode, ShoppingBag, Leaf, Loader2, X, CreditCard, QrCode, Banknote, RefreshCcw, Filter, AlertTriangle, Percent, Minus, PlusCircle, Calendar, Receipt, Briefcase, Landmark,
-  Clock, Scan, Ban, ShieldCheck, History, Calculator, PiggyBank, Wallet, ArrowDownCircle, ArrowUpCircle, Settings, Layers, ListFilter, AlertCircle, Edit3
+  Clock, Scan, Ban, ShieldCheck, History, Calculator, PiggyBank, Wallet, ArrowDownCircle, ArrowUpCircle, Settings, Layers, ListFilter, AlertCircle, Edit3, FileSpreadsheet
 } from 'lucide-react';
 import { Product, Supplier, Sale, Payment, ProductCategory } from '../types';
 import { supabase } from '../lib/supabase';
@@ -41,6 +41,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [showVoidModal, setShowVoidModal] = useState(false);
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
   
   const [voidingSale, setVoidingSale] = useState<any>(null);
   const [voidCode, setVoidCode] = useState('');
@@ -326,6 +327,28 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     });
   }, [payments, historyFilter, selectedHistoryDate, paymentStatusFilter, searchTerm]);
 
+  const monthlySummary = useMemo(() => {
+    const groups: Record<string, { year: number, month: number, purchases: number, paid: number, balance: number }> = {};
+    const monthNames = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
+
+    payments.forEach(p => {
+      const d = new Date(p.date + 'T12:00:00');
+      const year = d.getFullYear();
+      const month = d.getMonth();
+      const key = `${year}-${month}`;
+
+      if (!groups[key]) {
+        groups[key] = { year, month, purchases: 0, paid: 0, balance: 0 };
+      }
+
+      groups[key].purchases += Number(p.total_amount || p.amount || 0);
+      groups[key].paid += Number(p.paid_amount || p.amount || 0);
+      groups[key].balance += Number(p.remaining_amount || 0);
+    });
+
+    return Object.values(groups).sort((a, b) => b.year !== a.year ? b.year - a.year : b.month - a.month);
+  }, [payments]);
+
   const subtotalCart = cart.reduce((a, c) => a + (Number(c.product.price) * c.qty), 0);
 
   const stats = useMemo(() => {
@@ -409,6 +432,60 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
               <input name="date" type="date" defaultValue={new Date().toISOString().split('T')[0]} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" />
               <button type="submit" className={`w-full ${isPartialPayment ? 'bg-amber-500' : 'bg-red-500'} text-white py-4 rounded-2xl font-black uppercase tracking-widest`}>GUARDAR EGRESO</button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showSummaryModal && (
+        <div className="fixed inset-0 bg-black/70 z-[130] flex items-center justify-center p-4 backdrop-blur-md">
+          <div className="bg-white rounded-[3rem] w-full max-w-4xl p-10 shadow-2xl animate-in zoom-in-95 overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center mb-8">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg">
+                  <FileSpreadsheet size={24} />
+                </div>
+                <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Resumen Mensual de Compras</h2>
+              </div>
+              <button onClick={() => setShowSummaryModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-all">
+                <X />
+              </button>
+            </div>
+
+            <div className="overflow-x-auto flex-1 custom-scrollbar">
+              <table className="w-full text-left border-separate border-spacing-y-2">
+                <thead className="bg-slate-50 sticky top-0 z-10">
+                  <tr className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
+                    <th className="px-6 py-4 rounded-l-2xl">AÑO</th>
+                    <th className="px-6 py-4 text-center">MES</th>
+                    <th className="px-6 py-4 text-right">TOTAL COMPRAS / MES</th>
+                    <th className="px-6 py-4 text-right">TOTAL PAGO / MES</th>
+                    <th className="px-6 py-4 text-right rounded-r-2xl">SALDO / MES</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthlySummary.map((row, i) => {
+                    const monthNames = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
+                    return (
+                      <tr key={i} className="bg-slate-50/50 hover:bg-slate-100/50 transition-colors group">
+                        <td className="px-6 py-5 rounded-l-2xl font-black text-slate-400">{row.year}</td>
+                        <td className="px-6 py-5 text-center font-black text-slate-800 tracking-tight">{monthNames[row.month]}</td>
+                        <td className="px-6 py-5 text-right font-black text-slate-900">${row.purchases.toLocaleString()}</td>
+                        <td className="px-6 py-5 text-right font-black text-emerald-600">${row.paid.toLocaleString()}</td>
+                        <td className="px-6 py-5 text-right font-black text-red-500 rounded-r-2xl bg-red-50/30">${row.balance.toLocaleString()}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {monthlySummary.length === 0 && (
+                <div className="py-20 text-center opacity-20 italic">No hay datos suficientes para generar un resumen mensual.</div>
+              )}
+            </div>
+
+            <div className="mt-8 pt-6 border-t flex justify-between items-center text-[10px] font-black text-slate-400 uppercase tracking-widest italic">
+              <span>SISTEMA AMAZONIA PRO</span>
+              <span>DATOS CALCULADOS EN TIEMPO REAL</span>
+            </div>
           </div>
         </div>
       )}
@@ -545,7 +622,6 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                   <button key={f} onClick={() => setHistoryFilter(f as any)} className={`px-6 py-2 rounded-xl font-black text-[10px] transition-all uppercase tracking-widest ${historyFilter === f ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>{f}</button>
                 ))}
               </div>
-              {/* Fix CalendarIcon reference by changing it to the imported name Calendar */}
               <div className="flex items-center gap-2"><Calendar size={16} className="text-slate-400"/><input type="date" value={selectedHistoryDate} onChange={(e) => { setSelectedHistoryDate(e.target.value); setHistoryFilter('CALENDARIO'); }} className="bg-slate-100 p-3 rounded-xl text-xs font-black outline-none border-none" /></div>
             </div>
             <div className="grid grid-cols-1 gap-4">
@@ -577,9 +653,14 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
           <div className="space-y-6 animate-in fade-in">
             <div className="flex justify-between items-center">
               <h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">Egresos de Caja</h2>
-              <button onClick={() => setShowPaymentModal(true)} className="bg-red-500 text-white px-8 py-4 rounded-3xl font-black flex items-center gap-2 shadow-xl uppercase text-xs hover:scale-105 active:scale-95 transition-all">
-                <ArrowDownCircle /> REGISTRAR GASTO
-              </button>
+              <div className="flex gap-2">
+                <button onClick={() => setShowSummaryModal(true)} className="bg-slate-900 text-white px-8 py-4 rounded-3xl font-black flex items-center gap-2 shadow-xl uppercase text-xs hover:scale-105 active:scale-95 transition-all">
+                  <FileSpreadsheet size={18} /> GENERAR RESUMEN
+                </button>
+                <button onClick={() => setShowPaymentModal(true)} className="bg-red-500 text-white px-8 py-4 rounded-3xl font-black flex items-center gap-2 shadow-xl uppercase text-xs hover:scale-105 active:scale-95 transition-all">
+                  <ArrowDownCircle size={18} /> REGISTRAR GASTO
+                </button>
+              </div>
             </div>
             <div className="bg-white p-6 rounded-[3rem] border shadow-sm flex gap-4 items-center">
               {['TODOS', 'PENDIENTE', 'COMPLETO'].map(s => (
@@ -665,7 +746,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       {/* Modal Código de Seguridad */}
       {showVoidModal && (
         <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 backdrop-blur-md">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-sm p-8 shadow-2xl animate-in zoom-in-95">
+          <div className="bg-white rounded-[2.5rem] w-full max-sm p-8 shadow-2xl animate-in zoom-in-95">
             <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-black uppercase flex items-center gap-2"><Ban className="text-red-500" /> ANULAR VENTA</h2><button onClick={() => setShowVoidModal(false)}><X /></button></div>
             <p className="text-xs font-bold text-slate-400 mb-6 uppercase tracking-widest text-center">Código Requerido (1960)</p>
             <input type="password" value={voidCode} onChange={(e) => setVoidCode(e.target.value)} placeholder="••••" className="w-full p-4 bg-slate-50 border-2 rounded-2xl text-center text-3xl font-black outline-none focus:border-red-500 shadow-inner" />
