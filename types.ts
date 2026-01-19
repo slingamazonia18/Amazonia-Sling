@@ -41,6 +41,7 @@ export interface Sale {
   billing_type: 'FACTURA' | 'COMPROBANTE';
   system_type: 'PETSHOP' | 'MATEANDO';
   sale_items?: SaleItem[];
+  is_voided?: boolean;
 }
 
 export interface SaleItem {
