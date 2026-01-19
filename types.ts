@@ -1,5 +1,5 @@
 
-export type SystemType = 'HUB' | 'PETSHOP' | 'MATEANDO' | 'CONSULTORIO';
+export type SystemType = 'HUB' | 'PETSHOP' | 'MATEANDO' | 'CONSULTORIO' | 'TARIFAS';
 
 export interface Product {
   id: string;
@@ -27,7 +27,7 @@ export interface Payment {
   amount: number;
   date: string;
   time: string;
-  type: 'PROVEEDOR' | 'SERVICIO' | 'EMPLEADO' | 'OTRO';
+  type: 'PROVEEDOR' | 'SERVICIO' | 'EMPLEADO' | 'RETIRO' | 'OTRO';
   system_type: 'PETSHOP' | 'MATEANDO';
   payment_method: string;
   recipient_name?: string;
@@ -60,4 +60,12 @@ export interface Appointment {
   date: string;
   time: string;
   type: 'CONSULTA' | 'VACUNA' | 'CIRUGIA' | 'CONTROL';
+}
+
+export interface Tariff {
+  id: string;
+  category: string; // Ej: Razas chicas hasta 10 kilos
+  service_name: string; // Ej: Corte y baño
+  total_price: number;
+  groomer_price: number;
 }

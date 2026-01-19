@@ -6,11 +6,13 @@ import {
   Leaf, 
   LayoutDashboard,
   Wallet,
-  Calculator
+  Calculator,
+  Tags
 } from 'lucide-react';
 import { SystemType } from './types';
 import RetailSystem from './components/RetailSystem';
 import ClinicSystem from './components/ClinicSystem';
+import TariffSystem from './components/TariffSystem';
 import { supabase } from './lib/supabase';
 
 const App: React.FC = () => {
@@ -25,18 +27,15 @@ const App: React.FC = () => {
 
   const calculateGlobalResupply = async () => {
     try {
+      // Usamos * para evitar errores si la columna is_voided aún no se ha creado
       const { data: sales, error } = await supabase
         .from('sales')
-        .select(`
-          system_type,
-          is_voided,
-          sale_items (
-            quantity,
-            product_id
-          )
-        `);
+        .select('*, sale_items(*)');
       
-      if (error) throw error;
+      if (error) {
+        console.warn("Error consultando ventas (puede ser por columna faltante):", error.message);
+        return;
+      }
 
       const { data: products } = await supabase.from('products').select('id, cost');
       const costMap = new Map<string, number>(
@@ -45,8 +44,9 @@ const App: React.FC = () => {
 
       const totals = { MATEANDO: 0, PETSHOP: 0 };
       sales?.forEach((sale: any) => {
-        // Solo sumamos si la venta NO está anulada
-        if (!sale.is_voided) {
+        // Manejamos is_voided de forma segura (si no existe, asumimos false)
+        const isVoided = sale.is_voided === true;
+        if (!isVoided) {
           sale.sale_items?.forEach((item: any) => {
             const costValue = Number(costMap.get(item.product_id)) || 0;
             const qtyValue = Number(item.quantity) || 0;
@@ -58,7 +58,7 @@ const App: React.FC = () => {
       });
       setResupplyFund(totals);
     } catch (err) {
-      console.error("Error calculando repositorio:", err);
+      console.error("Error crítico calculando repositorio:", err);
     }
   };
 
@@ -86,6 +86,14 @@ const App: React.FC = () => {
       icon: <Stethoscope className="w-12 h-12" />,
       color: 'bg-sky-500',
       hover: 'hover:bg-sky-600'
+    },
+    {
+      id: 'TARIFAS' as SystemType,
+      title: 'Tarifas',
+      description: 'Precios Peluquería',
+      icon: <Tags className="w-12 h-12" />,
+      color: 'bg-indigo-600',
+      hover: 'hover:bg-indigo-700'
     }
   ];
 
@@ -97,6 +105,8 @@ const App: React.FC = () => {
         return <RetailSystem type="MATEANDO" onBack={() => setCurrentSystem('HUB')} />;
       case 'CONSULTORIO':
         return <ClinicSystem onBack={() => setCurrentSystem('HUB')} />;
+      case 'TARIFAS':
+        return <TariffSystem onBack={() => setCurrentSystem('HUB')} />;
       default:
         return (
           <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-slate-50">
@@ -105,23 +115,23 @@ const App: React.FC = () => {
               <p className="text-slate-400 text-lg font-medium uppercase tracking-[0.3em] text-[10px]">Gestión Integral Profesional</p>
             </header>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-6xl">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 w-full max-w-7xl">
               {systems.map((sys) => (
                 <button
                   key={sys.id}
                   onClick={() => setCurrentSystem(sys.id)}
-                  className={`${sys.color} ${sys.hover} transition-all duration-300 transform hover:-translate-y-2 p-12 rounded-[4rem] shadow-xl flex flex-col items-center text-white text-center group`}
+                  className={`${sys.color} ${sys.hover} transition-all duration-300 transform hover:-translate-y-2 p-10 rounded-[3rem] shadow-xl flex flex-col items-center text-white text-center group`}
                 >
                   <div className="mb-6 p-5 bg-white/20 rounded-full group-hover:scale-110 transition-transform">
                     {sys.icon}
                   </div>
-                  <h2 className="text-3xl font-black mb-3 tracking-tight">{sys.title}</h2>
-                  <p className="text-white/80 text-sm font-medium">{sys.description}</p>
+                  <h2 className="text-2xl font-black mb-2 tracking-tight">{sys.title}</h2>
+                  <p className="text-white/80 text-xs font-medium">{sys.description}</p>
                 </button>
               ))}
             </div>
 
-            <div className="mt-16 w-full max-w-4xl bg-white p-10 rounded-[4rem] shadow-sm border">
+            <div className="mt-12 w-full max-w-4xl bg-white p-10 rounded-[4rem] shadow-sm border">
               <div className="flex items-center gap-3 mb-8">
                 <div className="p-2.5 bg-slate-900 text-white rounded-2xl shadow-lg">
                   <Calculator size={24} />
@@ -139,10 +149,6 @@ const App: React.FC = () => {
                   <p className="text-4xl font-black text-amber-800 tracking-tighter">${resupplyFund.PETSHOP.toLocaleString()}</p>
                   <p className="text-[10px] text-amber-500 mt-4 font-bold italic uppercase">Capital de mercadería vendida.</p>
                 </div>
-              </div>
-              <div className="mt-10 p-5 bg-slate-50 rounded-3xl border text-center border-dashed">
-                <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Resumen Global Amazonia</p>
-                <p className="text-slate-900 font-black text-2xl mt-1 tracking-tighter">${(resupplyFund.MATEANDO + resupplyFund.PETSHOP).toLocaleString()}</p>
               </div>
             </div>
           </div>
