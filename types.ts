@@ -46,6 +46,16 @@ export interface Payment {
   recipient_name?: string;
 }
 
+export interface ClinicPurchase {
+  id: string;
+  description: string;
+  amount: number;
+  category: string;
+  supplier: string;
+  date: string;
+  created_at: string;
+}
+
 export interface Sale {
   id: string;
   created_at: string;

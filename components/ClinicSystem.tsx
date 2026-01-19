@@ -1,44 +1,44 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  ArrowLeft, Calendar as CalendarIcon, Clock, User, Dog, Plus, ChevronLeft, ChevronRight, Filter, Loader2, X, Trash2
+  ArrowLeft, Calendar as CalendarIcon, Clock, User, Dog, Plus, ChevronLeft, ChevronRight, 
+  Filter, Loader2, X, Trash2, ShoppingCart, Activity, Briefcase, Pill, Syringe, Box
 } from 'lucide-react';
-import { Appointment } from '../types';
+import { Appointment, ClinicPurchase } from '../types';
 import { supabase } from '../lib/supabase';
 
 interface ClinicSystemProps {
   onBack: () => void;
 }
 
-const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
-  // Función auxiliar para obtener la fecha local en formato YYYY-MM-DD
-  const getLocalDateString = (date: Date = new Date()) => {
-    const offset = date.getTimezoneOffset();
-    const localDate = new Date(date.getTime() - (offset * 60 * 1000));
-    return localDate.toISOString().split('T')[0];
-  };
+type ClinicTab = 'TURNOS' | 'COMPRAS';
 
-  const [appointments, setAppointments] = useState<any[]>([]);
-  const [selectedDate, setSelectedDate] = useState(getLocalDateString());
+const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
+  const [activeTab, setActiveTab] = useState<ClinicTab>('TURNOS');
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [purchases, setPurchases] = useState<ClinicPurchase[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+  
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [viewMode, setViewMode] = useState<'DÍA' | 'SEMANA'>('DÍA');
-
-  // Estado para la vista del calendario (mes y año que se está visualizando)
   const [viewDate, setViewDate] = useState(new Date());
 
   useEffect(() => {
-    fetchAppointments();
+    fetchData();
   }, []);
 
-  const fetchAppointments = async () => {
+  const fetchData = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.from('appointments').select('*').order('date', { ascending: true }).order('time', { ascending: true });
-      if (error) throw error;
-      if (data) setAppointments(data);
-    } catch (err: any) {
-      console.error("Error al buscar turnos:", err.message);
+      const { data: appts } = await supabase.from('appointments').select('*').order('date', { ascending: true });
+      const { data: purcs } = await supabase.from('clinic_purchases').select('*').order('date', { ascending: false });
+      
+      if (appts) setAppointments(appts);
+      if (purcs) setPurchases(purcs);
+    } catch (err) {
+      console.error("Error fetching clinic data:", err);
     } finally {
       setLoading(false);
     }
@@ -54,24 +54,64 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
       time: formData.get('time'),
       type: formData.get('type')
     };
-
     try {
       const { error } = await supabase.from('appointments').insert(newAppt);
       if (error) throw error;
       setShowModal(false);
-      fetchAppointments();
-    } catch (err: any) {
-      alert("Error: " + err.message);
-    }
+      fetchData();
+    } catch (err: any) { alert(err.message); }
+  };
+
+  const handleCreatePurchase = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const newPurc = {
+      description: formData.get('description'),
+      amount: Number(formData.get('amount')),
+      category: formData.get('category'),
+      supplier: formData.get('supplier'),
+      date: formData.get('date')
+    };
+    try {
+      const { error } = await supabase.from('clinic_purchases').insert(newPurc);
+      if (error) throw error;
+      setShowPurchaseModal(false);
+      fetchData();
+    } catch (err: any) { alert(err.message); }
   };
 
   const deleteAppointment = async (id: string) => {
     if (confirm("¿Eliminar este turno?")) {
-      const { error } = await supabase.from('appointments').delete().eq('id', id);
-      if (error) alert(error.message);
-      else fetchAppointments();
+      await supabase.from('appointments').delete().eq('id', id);
+      fetchData();
     }
   };
+
+  const deletePurchase = async (id: string) => {
+    if (confirm("¿Eliminar registro de compra?")) {
+      await supabase.from('clinic_purchases').delete().eq('id', id);
+      fetchData();
+    }
+  };
+
+  // Lógica de filtrado de turnos
+  const filteredAppointments = useMemo(() => {
+    if (viewMode === 'DÍA') {
+      return appointments.filter(a => a.date === selectedDate);
+    } else {
+      const start = new Date(selectedDate + 'T12:00:00');
+      const end = new Date(selectedDate + 'T12:00:00');
+      end.setDate(start.getDate() + 7);
+      const startStr = start.toISOString().split('T')[0];
+      const endStr = end.toISOString().split('T')[0];
+      return appointments.filter(a => a.date >= startStr && a.date <= endStr);
+    }
+  }, [appointments, selectedDate, viewMode]);
+
+  const purchaseStats = useMemo(() => {
+    const total = purchases.reduce((acc, p) => acc + Number(p.amount), 0);
+    return { total };
+  }, [purchases]);
 
   const typeColors: any = {
     'CONSULTA': 'bg-sky-100 text-sky-700 border-sky-200',
@@ -80,112 +120,56 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
     'CONTROL': 'bg-amber-100 text-amber-700 border-amber-200'
   };
 
-  const getFilteredAppointments = () => {
-    if (viewMode === 'DÍA') {
-      return appointments.filter(a => a.date === selectedDate);
-    } else {
-      // Para vista semanal, calculamos 7 días desde la fecha seleccionada
-      const start = new Date(selectedDate + 'T12:00:00');
-      const end = new Date(selectedDate + 'T12:00:00');
-      end.setDate(start.getDate() + 7);
-      
-      const startStr = getLocalDateString(start);
-      const endStr = getLocalDateString(end);
-      
-      return appointments.filter(a => a.date >= startStr && a.date <= endStr);
-    }
-  };
-
-  const filtered = getFilteredAppointments();
-
-  const grouped = filtered.reduce((acc: any, appt) => {
-    if (!acc[appt.date]) acc[appt.date] = [];
-    acc[appt.date].push(appt);
-    return acc;
-  }, {});
-
-  const sortedDates = Object.keys(grouped).sort();
-
-  // Lógica de Generación de Calendario (Grid de 6 semanas fijo para evitar saltos de UI)
-  const calendarDays = useMemo(() => {
-    const year = viewDate.getFullYear();
-    const month = viewDate.getMonth();
-    const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0 (Dom) a 6 (Sab)
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    
-    const days = [];
-    // Padding inicial
-    for (let i = 0; i < firstDayOfMonth; i++) {
-      days.push(null);
-    }
-    // Días del mes
-    for (let i = 1; i <= daysInMonth; i++) {
-      days.push(new Date(year, month, i));
-    }
-    // Padding final para completar 42 celdas (6 semanas)
-    while (days.length < 42) {
-      days.push(null);
-    }
-    return days;
-  }, [viewDate]);
-
-  const handleMonthChange = (month: number) => {
-    setViewDate(new Date(viewDate.getFullYear(), month, 1));
-  };
-
-  const handleYearChange = (year: number) => {
-    setViewDate(new Date(year, viewDate.getMonth(), 1));
-  };
-
-  const changeMonthOffset = (offset: number) => {
-    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + offset, 1));
-  };
-
-  const months = [
-    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-  ];
-
-  const years = Array.from({ length: 16 }, (_, i) => 2020 + i);
-
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col relative">
+      {/* Modales */}
       {showModal && (
         <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl animate-in zoom-in-95">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold text-slate-800">Nuevo Turno</h2>
-              <button onClick={() => setShowModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-all"><X /></button>
+              <h2 className="text-2xl font-black text-slate-800">Nuevo Turno</h2>
+              <button onClick={() => setShowModal(false)}><X /></button>
             </div>
             <form onSubmit={handleCreateAppointment} className="space-y-4">
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Dueño / Cliente</label>
-                <input name="client_name" placeholder="Ej: Juan Perez" required className="w-full p-4 bg-slate-50 border rounded-2xl focus:ring-2 focus:ring-sky-500 outline-none" />
-              </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nombre del Paciente</label>
-                <input name="pet_name" placeholder="Ej: Firulais" required className="w-full p-4 bg-slate-50 border rounded-2xl focus:ring-2 focus:ring-sky-500 outline-none" />
-              </div>
+              <input name="client_name" placeholder="Dueño" required className="w-full p-4 bg-slate-50 border rounded-2xl outline-none focus:ring-2 focus:ring-sky-500 font-bold" />
+              <input name="pet_name" placeholder="Paciente (Nombre)" required className="w-full p-4 bg-slate-50 border rounded-2xl outline-none focus:ring-2 focus:ring-sky-500 font-bold" />
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fecha</label>
-                  <input name="date" type="date" defaultValue={selectedDate} required className="w-full p-4 bg-slate-50 border rounded-2xl focus:ring-2 focus:ring-sky-500 outline-none" />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Hora</label>
-                  <input name="time" type="time" required className="w-full p-4 bg-slate-50 border rounded-2xl focus:ring-2 focus:ring-sky-500 outline-none" />
-                </div>
+                <input name="date" type="date" defaultValue={selectedDate} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" />
+                <input name="time" type="time" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" />
               </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Motivo</label>
-                <select name="type" className="w-full p-4 bg-slate-50 border rounded-2xl focus:ring-2 focus:ring-sky-500 outline-none appearance-none">
-                  <option value="CONSULTA">Consulta Clínica</option>
-                  <option value="VACUNA">Plan de Vacunación</option>
-                  <option value="CIRUGIA">Intervención Quirúrgica</option>
-                  <option value="CONTROL">Control de Seguimiento</option>
-                </select>
+              <select name="type" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none">
+                <option value="CONSULTA">CONSULTA CLÍNICA</option>
+                <option value="VACUNA">PLAN VACUNACIÓN</option>
+                <option value="CIRUGIA">CIRUGÍA</option>
+                <option value="CONTROL">CONTROL</option>
+              </select>
+              <button type="submit" className="w-full bg-sky-500 text-white py-5 rounded-3xl font-black shadow-xl uppercase tracking-widest mt-4">AGENDAR</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showPurchaseModal && (
+        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl animate-in zoom-in-95">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-black text-slate-800">Registrar Compra</h2>
+              <button onClick={() => setShowPurchaseModal(false)}><X /></button>
+            </div>
+            <form onSubmit={handleCreatePurchase} className="space-y-4">
+              <input name="description" placeholder="Descripción (Ej: Jeringas 5ml)" required className="w-full p-4 bg-slate-50 border rounded-2xl outline-none focus:ring-2 focus:ring-sky-500 font-bold" />
+              <div className="grid grid-cols-2 gap-4">
+                <input name="amount" type="number" step="0.01" placeholder="Monto ($)" required className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xl" />
+                <input name="date" type="date" defaultValue={new Date().toISOString().split('T')[0]} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" />
               </div>
-              <button type="submit" className="w-full bg-sky-500 text-white py-4 rounded-[1.5rem] font-black shadow-xl hover:bg-sky-600 transition-all active:scale-95 mt-4">AGENDAR TURNO</button>
+              <input name="supplier" placeholder="Proveedor" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" />
+              <select name="category" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none">
+                <option value="MEDICAMENTOS">MEDICAMENTOS</option>
+                <option value="DESCARTABLES">DESCARTABLES / INSUMOS</option>
+                <option value="EQUIPAMIENTO">EQUIPAMIENTO</option>
+                <option value="OTROS">OTROS</option>
+              </select>
+              <button type="submit" className="w-full bg-indigo-600 text-white py-5 rounded-3xl font-black shadow-xl uppercase tracking-widest mt-4">GUARDAR COMPRA</button>
             </form>
           </div>
         </div>
@@ -194,177 +178,145 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
       <nav className="bg-sky-500 text-white px-6 py-4 flex items-center justify-between shadow-lg sticky top-0 z-50">
         <div className="flex items-center gap-4">
           <button onClick={onBack} className="p-2 hover:bg-white/20 rounded-full transition-colors"><ArrowLeft size={24} /></button>
-          <h1 className="text-2xl font-bold flex items-center gap-3"><CalendarIcon /> Amazonia Consultorio</h1>
+          <h1 className="text-2xl font-black flex items-center gap-3 italic uppercase tracking-tighter">Amazonia Consultorio</h1>
         </div>
-        <button onClick={() => setShowModal(true)} className="bg-white text-sky-600 px-6 py-2 rounded-xl font-bold flex items-center gap-2 shadow-md transition-transform active:scale-95">
-          <Plus size={20} /> Nuevo Turno
-        </button>
+        <div className="flex bg-white/20 rounded-2xl p-1 overflow-hidden">
+          <button onClick={() => setActiveTab('TURNOS')} className={`px-6 py-2 rounded-xl text-[10px] font-black tracking-widest uppercase transition-all ${activeTab === 'TURNOS' ? 'bg-white text-sky-600' : 'hover:bg-white/10'}`}>TURNOS</button>
+          <button onClick={() => setActiveTab('COMPRAS')} className={`px-6 py-2 rounded-xl text-[10px] font-black tracking-widest uppercase transition-all ${activeTab === 'COMPRAS' ? 'bg-white text-sky-600' : 'hover:bg-white/10'}`}>INSUMOS / COMPRAS</button>
+        </div>
       </nav>
 
-      <main className="flex-1 p-6 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="space-y-6">
-          <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200">
-            {/* Cabecera del Calendario con Selectores */}
-            <div className="flex flex-col gap-4 mb-6">
-              <div className="flex justify-between items-center">
-                <div className="flex gap-1">
-                  <button 
-                    onClick={() => changeMonthOffset(-1)}
-                    className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"><ChevronLeft size={18}/></button>
-                  <button 
-                    onClick={() => changeMonthOffset(1)}
-                    className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"><ChevronRight size={18}/></button>
+      <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
+        {activeTab === 'TURNOS' && (
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 animate-in fade-in duration-500">
+            <div className="lg:col-span-1">
+              <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="font-black text-slate-400 text-[10px] uppercase tracking-widest">Calendario</h3>
+                  <button onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])} className="text-[9px] font-black text-sky-500 bg-sky-50 px-2 py-1 rounded-lg">Hoy</button>
                 </div>
-                <button 
-                  onClick={() => {
-                    const now = new Date();
-                    setViewDate(now);
-                    setSelectedDate(getLocalDateString(now));
-                  }}
-                  className="px-3 py-1 text-[9px] font-black text-sky-500 bg-sky-50 rounded-lg hover:bg-sky-100 transition-colors uppercase tracking-widest"
-                >
-                  Hoy
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <select 
-                  value={viewDate.getMonth()} 
-                  onChange={(e) => handleMonthChange(parseInt(e.target.value))}
-                  className="bg-slate-50 border-none rounded-xl p-2 text-xs font-black text-slate-800 outline-none appearance-none cursor-pointer hover:bg-slate-100"
-                >
-                  {months.map((m, i) => <option key={m} value={i}>{m}</option>)}
-                </select>
-                <select 
-                  value={viewDate.getFullYear()} 
-                  onChange={(e) => handleYearChange(parseInt(e.target.value))}
-                  className="bg-slate-50 border-none rounded-xl p-2 text-xs font-black text-slate-800 outline-none appearance-none cursor-pointer hover:bg-slate-100"
-                >
-                  {years.map(y => <option key={y} value={y}>{y}</option>)}
-                </select>
+                <input 
+                  type="date" 
+                  value={selectedDate} 
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-slate-800 outline-none mb-4" 
+                />
+                <button onClick={() => setShowModal(true)} className="w-full bg-sky-500 text-white py-4 rounded-2xl font-black shadow-lg flex items-center justify-center gap-2 text-xs uppercase"><Plus size={16}/> AGENDAR TURNO</button>
               </div>
             </div>
-            
-            <div className="grid grid-cols-7 gap-1 text-center mb-2">
-              {['D', 'L', 'M', 'M', 'J', 'V', 'S'].map(d => (
-                <span key={d} className="text-[10px] font-black text-slate-300 py-2">{d}</span>
-              ))}
-            </div>
-            
-            <div className="grid grid-cols-7 gap-1">
-              {calendarDays.map((dateObj, i) => {
-                if (!dateObj) return <div key={`empty-${i}`} className="aspect-square opacity-20 bg-slate-50/50 rounded-xl" />;
-                
-                const dStr = getLocalDateString(dateObj);
-                const active = selectedDate === dStr;
-                const isToday = getLocalDateString() === dStr;
-                const hasAppt = appointments.some(a => a.date === dStr);
-                
-                return (
-                  <button 
-                    key={dStr} 
-                    onClick={() => setSelectedDate(dStr)} 
-                    className={`aspect-square flex flex-col items-center justify-center rounded-xl text-xs font-bold transition-all relative ${
-                      active ? 'bg-sky-500 text-white shadow-lg ring-2 ring-sky-100 scale-105 z-10' : 
-                      isToday ? 'bg-sky-50 text-sky-600 border border-sky-200' : 'hover:bg-slate-50 text-slate-600'
-                    }`}
-                  >
-                    {dateObj.getDate()}
-                    {hasAppt && (
-                      <span className={`absolute bottom-1 w-1 h-1 rounded-full ${active ? 'bg-white' : 'bg-sky-500'}`}></span>
-                    )}
-                  </button>
-                );
-              })}
+
+            <div className="lg:col-span-3 space-y-4">
+              <div className="flex justify-between items-center bg-white p-6 rounded-[2rem] border shadow-sm">
+                <div>
+                  <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Turnos del {selectedDate}</h2>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Atención Veterinaria</p>
+                </div>
+                <div className="flex bg-slate-100 p-1 rounded-xl">
+                  <button onClick={() => setViewMode('DÍA')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black ${viewMode === 'DÍA' ? 'bg-white shadow-sm' : 'text-slate-400'}`}>DÍA</button>
+                  <button onClick={() => setViewMode('SEMANA')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black ${viewMode === 'SEMANA' ? 'bg-white shadow-sm' : 'text-slate-400'}`}>SEMANA</button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3">
+                {filteredAppointments.length === 0 ? (
+                  <div className="bg-white p-20 rounded-[2.5rem] border border-dashed text-center opacity-30 italic font-black uppercase tracking-widest">No hay turnos agendados</div>
+                ) : (
+                  filteredAppointments.map(appt => (
+                    <div key={appt.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 flex items-center justify-between group hover:shadow-lg transition-all">
+                      <div className="flex items-center gap-6">
+                        <div className="text-center min-w-[60px] border-r pr-6">
+                          <p className="text-[9px] font-black text-slate-300 uppercase">Hora</p>
+                          <p className="text-xl font-black text-slate-800">{appt.time.slice(0,5)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-black text-sky-500 uppercase tracking-widest">Paciente: {appt.pet_name}</p>
+                          <h4 className="font-black text-slate-800 uppercase text-xs">{appt.client_name}</h4>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <span className={`px-4 py-1 rounded-full text-[9px] font-black border uppercase ${typeColors[appt.type]}`}>{appt.type}</span>
+                        <button onClick={() => deleteAppointment(appt.id)} className="p-2 text-red-200 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"><Trash2 size={18} /></button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        <div className="lg:col-span-3 space-y-4">
-          <div className="bg-white p-6 rounded-[2rem] border border-slate-200 flex flex-col md:flex-row gap-4 justify-between items-center shadow-sm">
-            <div>
-              <h2 className="text-2xl font-black text-slate-800 tracking-tight">
-                {viewMode === 'DÍA' ? 'Agenda del Día' : 'Agenda de los próximos 7 días'}
-              </h2>
-              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">
-                {new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-              </p>
-            </div>
-            <div className="flex bg-slate-100 p-1 rounded-2xl">
-              <button 
-                onClick={() => setViewMode('DÍA')}
-                className={`px-6 py-2 rounded-xl font-black text-xs transition-all ${viewMode === 'DÍA' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-              >
-                DÍA
-              </button>
-              <button 
-                onClick={() => setViewMode('SEMANA')}
-                className={`px-6 py-2 rounded-xl font-black text-xs transition-all ${viewMode === 'SEMANA' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-              >
-                SEMANA
+        {activeTab === 'COMPRAS' && (
+          <div className="space-y-6 animate-in slide-in-from-bottom duration-500">
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+              <div className="flex items-center gap-4">
+                <div className="p-4 bg-indigo-600 text-white rounded-[2rem] shadow-xl">
+                  <ShoppingCart size={32} />
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter">Compras de Consultorio</h2>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Control de Gastos e Insumos Médicos</p>
+                </div>
+              </div>
+              <button onClick={() => setShowPurchaseModal(true)} className="bg-indigo-600 text-white px-10 py-4 rounded-[2rem] font-black shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2 uppercase text-xs tracking-widest">
+                <Plus size={18} /> REGISTRAR COMPRA
               </button>
             </div>
-          </div>
 
-          <div className="space-y-6">
-            {loading ? (
-              <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[2rem] border border-dashed">
-                <Loader2 className="animate-spin text-sky-500 mb-4" size={40} />
-                <span className="text-slate-400 font-bold">Cargando agenda...</span>
-              </div>
-            ) : filtered.length === 0 ? (
-              <div className="bg-white p-20 rounded-[2.5rem] border border-dashed border-slate-200 text-center text-slate-400">
-                <CalendarIcon className="mx-auto mb-4 opacity-10" size={60} />
-                <p className="text-lg font-bold">No hay turnos registrados para esta fecha</p>
-                <button onClick={() => setShowModal(true)} className="mt-4 text-sky-500 font-bold hover:underline">Agendar el primer turno</button>
-              </div>
-            ) : viewMode === 'DÍA' ? (
-              <div className="space-y-3">
-                {filtered.map(appt => <AppointmentCard key={appt.id} appt={appt} onDelete={deleteAppointment} typeColors={typeColors} />)}
-              </div>
-            ) : (
-              sortedDates.map(date => (
-                <div key={date} className="space-y-3">
-                  <div className="flex items-center gap-4 px-4 pt-4">
-                    <span className="h-px bg-slate-200 flex-1"></span>
-                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">
-                      {new Date(date + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' })}
-                    </h3>
-                    <span className="h-px bg-slate-200 flex-1"></span>
-                  </div>
-                  {grouped[date].map((appt: any) => <AppointmentCard key={appt.id} appt={appt} onDelete={deleteAppointment} typeColors={typeColors} />)}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white p-8 rounded-[2.5rem] border-2 border-slate-100 shadow-sm col-span-1">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Gasto Total Acumulado</p>
+                <p className="text-4xl font-black text-slate-900 tracking-tighter">${purchaseStats.total.toLocaleString()}</p>
+                <div className="mt-6 pt-6 border-t border-dashed">
+                  <div className="flex justify-between text-xs font-bold mb-2"><span>Medicación</span><span>${purchases.filter(p => p.category === 'MEDICAMENTOS').reduce((a, b) => a + Number(b.amount), 0).toLocaleString()}</span></div>
+                  <div className="flex justify-between text-xs font-bold mb-2"><span>Insumos</span><span>${purchases.filter(p => p.category === 'DESCARTABLES').reduce((a, b) => a + Number(b.amount), 0).toLocaleString()}</span></div>
+                  <div className="flex justify-between text-xs font-bold"><span>Equipos</span><span>${purchases.filter(p => p.category === 'EQUIPAMIENTO').reduce((a, b) => a + Number(b.amount), 0).toLocaleString()}</span></div>
                 </div>
-              ))
-            )}
+              </div>
+
+              <div className="bg-white rounded-[2.5rem] border shadow-sm col-span-2 overflow-hidden">
+                <div className="bg-slate-50 px-8 py-4 border-b flex justify-between items-center">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Historial de Compras</span>
+                  <span className="text-[10px] font-black text-slate-300">{purchases.length} Registros</span>
+                </div>
+                <div className="max-h-[500px] overflow-y-auto custom-scrollbar">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50/50 sticky top-0 text-[9px] font-black uppercase text-slate-400 border-b">
+                      <tr>
+                        <th className="px-8 py-4">Insumo / Descripción</th>
+                        <th className="px-8 py-4">Categoría</th>
+                        <th className="px-8 py-4">Monto</th>
+                        <th className="px-8 py-4 text-right">Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {purchases.map(p => (
+                        <tr key={p.id} className="group hover:bg-slate-50/50 transition-colors">
+                          <td className="px-8 py-4">
+                            <p className="font-black text-slate-800 uppercase text-xs">{p.description}</p>
+                            <p className="text-[9px] text-slate-300 font-bold uppercase">{p.date} • {p.supplier || 'SIN PROVEEDOR'}</p>
+                          </td>
+                          <td className="px-8 py-4">
+                            <span className={`text-[8px] font-black px-2 py-0.5 rounded-full border border-slate-200 uppercase tracking-tighter`}>{p.category}</span>
+                          </td>
+                          <td className="px-8 py-4 font-black text-slate-900">${Number(p.amount).toLocaleString()}</td>
+                          <td className="px-8 py-4 text-right">
+                            <button onClick={() => deletePurchase(p.id)} className="p-2 text-red-100 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"><Trash2 size={16} /></button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {purchases.length === 0 && <div className="p-20 text-center opacity-20 italic font-black uppercase tracking-[0.3em]">No hay compras registradas</div>}
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </main>
+
+      {loading && (<div className="fixed bottom-10 right-10 bg-white p-5 rounded-3xl shadow-2xl flex items-center gap-4 border z-[1000] animate-pulse"><Loader2 className="animate-spin text-sky-500" size={20} /><span className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-500">Sincronizando...</span></div>)}
     </div>
   );
 };
-
-const AppointmentCard = ({ appt, onDelete, typeColors }: any) => (
-  <div className="bg-white p-6 rounded-[2rem] border border-slate-100 flex items-center gap-6 group hover:shadow-xl transition-all duration-300">
-    <div className="flex flex-col items-center min-w-[80px] border-r border-slate-100 pr-6">
-      <Clock size={16} className="text-sky-400 mb-1" />
-      <span className="font-black text-xl text-slate-800">{appt.time.slice(0,5)}</span>
-    </div>
-    <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-2">
-      <div>
-        <p className="text-[10px] font-black text-slate-300 uppercase">Propietario</p>
-        <p className="font-bold text-slate-800">{appt.client_name}</p>
-      </div>
-      <div>
-        <p className="text-[10px] font-black text-slate-300 uppercase">Paciente</p>
-        <p className="font-bold text-slate-800 flex items-center gap-2"><Dog size={14} className="text-sky-500" /> {appt.pet_name}</p>
-      </div>
-    </div>
-    <div className={`px-4 py-2 rounded-xl text-[9px] font-black border uppercase tracking-widest ${typeColors[appt.type] || 'bg-slate-100'}`}>
-      {appt.type}
-    </div>
-    <button onClick={() => onDelete(appt.id)} className="opacity-0 group-hover:opacity-100 p-3 text-red-300 hover:text-red-500 transition-all">
-      <Trash2 size={18} />
-    </button>
-  </div>
-);
 
 export default ClinicSystem;
