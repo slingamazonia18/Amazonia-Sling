@@ -20,6 +20,20 @@ export interface ProductCategory {
   system_type: 'PETSHOP' | 'MATEANDO' | 'CONSULTORIO';
 }
 
+export interface ClinicalConsultation {
+  id: string;
+  client_name: string;
+  pet_name: string;
+  weight: string;
+  temperature: string;
+  reason: string;
+  diagnosis: string;
+  treatment: string;
+  amount: number;
+  date: string;
+  created_at: string;
+}
+
 export interface Supplier {
   id: string;
   name: string;
@@ -46,26 +60,6 @@ export interface Payment {
   recipient_name?: string;
 }
 
-export interface Sale {
-  id: string;
-  created_at: string;
-  total: number;
-  payment_method: string;
-  billing_type: 'FACTURA' | 'COMPROBANTE';
-  system_type: 'PETSHOP' | 'MATEANDO' | 'CONSULTORIO';
-  sale_items?: SaleItem[];
-  is_voided?: boolean;
-}
-
-export interface SaleItem {
-  id: string;
-  sale_id: string;
-  product_id: string;
-  name: string;
-  quantity: number;
-  subtotal: number;
-}
-
 export interface Appointment {
   id: string;
   client_name: string;
@@ -81,4 +75,27 @@ export interface Tariff {
   service_name: string; 
   total_price: number;
   groomer_price: number;
+}
+
+/**
+ * Added Sale and SaleItem interfaces to represent retail transaction data.
+ */
+export interface Sale {
+  id: string;
+  created_at: string;
+  total: number;
+  payment_method: string;
+  billing_type: 'FACTURA' | 'COMPROBANTE';
+  system_type: 'PETSHOP' | 'MATEANDO';
+  is_voided: boolean;
+  sale_items?: SaleItem[];
+}
+
+export interface SaleItem {
+  id: string;
+  sale_id: string;
+  product_id: string;
+  name: string;
+  quantity: number;
+  subtotal: number;
 }

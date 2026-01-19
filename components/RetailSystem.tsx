@@ -5,6 +5,7 @@ import {
   Trash2, Printer, FileText, PhoneCall, Save, Barcode, ShoppingBag, Leaf, Loader2, X, CreditCard, QrCode, Banknote, RefreshCcw, Filter, AlertTriangle, Percent, Minus, PlusCircle, Calendar, Receipt, Briefcase, Landmark,
   Clock, Scan, Ban, ShieldCheck, History, Calculator, PiggyBank, Wallet, ArrowDownCircle, ArrowUpCircle, Settings, Layers, ListFilter, AlertCircle, Edit3, FileSpreadsheet
 } from 'lucide-react';
+// Correctly import Sale type from types.ts
 import { Product, Supplier, Sale, Payment, ProductCategory } from '../types';
 import { supabase } from '../lib/supabase';
 import { jsPDF } from 'jspdf';
@@ -23,7 +24,8 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [cart, setCart] = useState<{ product: Product; qty: number }[]>([]);
-  const [salesHistory, setSalesHistory] = useState<any[]>([]);
+  // Use typed Sale array for history instead of any[]
+  const [salesHistory, setSalesHistory] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
   
   const [cashDrawerFund, setCashDrawerFund] = useState<string>('0');
@@ -492,7 +494,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
 
       {showCheckoutModal && (
         <div className="fixed inset-0 bg-black/70 z-[120] flex items-center justify-center p-4 backdrop-blur-md">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95">
+          <div className="bg-white rounded-[2.5rem] w-full max-sm p-6 shadow-2xl animate-in zoom-in-95">
             <div className="flex justify-between items-center mb-5"><h2 className="text-xl font-black text-slate-800 uppercase">Cobro</h2><button onClick={() => setShowCheckoutModal(false)}><X size={18} /></button></div>
             <div className="space-y-5">
               <div className="grid grid-cols-2 gap-2">
