@@ -11,6 +11,7 @@ export interface Product {
   margin: number;
   price: number;
   category: 'PETSHOP' | 'MATEANDO' | 'CONSULTORIO';
+  product_category?: string;
 }
 
 export interface ProductCategory {
@@ -33,15 +34,30 @@ export interface ClinicalConsultation {
   created_at: string;
 }
 
+export interface Supplier {
+  id: string;
+  name: string;
+  whatsapp: string;
+  category: 'PETSHOP' | 'MATEANDO' | 'CONSULTORIO';
+}
+
 export interface Payment {
   id: string;
   created_at: string;
   description: string;
-  amount: number;
+  amount: number; 
+  total_amount: number;
+  paid_amount: number;
+  remaining_amount: number;
+  status: 'COMPLETO' | 'PENDIENTE';
+  deadline_days?: number;
+  due_date?: string;
   date: string;
+  time: string;
   type: 'PROVEEDOR' | 'SERVICIO' | 'EMPLEADO' | 'RETIRO' | 'OTRO';
   system_type: 'PETSHOP' | 'MATEANDO' | 'CONSULTORIO';
   payment_method: string;
+  recipient_name?: string;
 }
 
 export interface Appointment {
@@ -61,11 +77,15 @@ export interface Tariff {
   groomer_price: number;
 }
 
+/**
+ * Added Sale and SaleItem interfaces to represent retail transaction data.
+ */
 export interface Sale {
   id: string;
   created_at: string;
   total: number;
   payment_method: string;
+  billing_type: 'FACTURA' | 'COMPROBANTE';
   system_type: 'PETSHOP' | 'MATEANDO';
   is_voided: boolean;
   sale_items?: SaleItem[];
