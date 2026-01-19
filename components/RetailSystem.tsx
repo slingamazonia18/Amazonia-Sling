@@ -28,7 +28,6 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const [barcodeInput, setBarcodeInput] = useState('');
   const [showProductModal, setShowProductModal] = useState(false);
   const [showSupplierModal, setShowSupplierModal] = useState(false);
-  const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('EFECTIVO');
@@ -41,15 +40,16 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     primary: 'bg-emerald-600', hover: 'hover:bg-emerald-700', text: 'text-emerald-600'
   };
 
-  // EFECTO DE TIEMPO REAL: Escucha cualquier cambio en la base de datos
+  // FETCH INICIAL Y REALTIME
   useEffect(() => {
     fetchData();
     
-    // Suscripción global a cambios en el esquema público
+    // Suscripción de alta fidelidad: Escucha TODO en el esquema público
     const channel = supabase
-      .channel('schema-db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public' }, () => {
-        fetchData(); // Recargar datos automáticamente cuando algo cambie
+      .channel(`rt-${type}`)
+      .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
+        console.log('Cambio detectado en tiempo real:', payload);
+        fetchData(); // Recarga inteligente de datos
       })
       .subscribe();
 
@@ -59,18 +59,25 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   }, [type]);
 
   const fetchData = async () => {
-    const { data: prods } = await supabase.from('products').select('*').eq('category', type).order('name');
-    const { data: sups } = await supabase.from('suppliers').select('*').eq('category', type).order('name');
-    const { data: sales } = await supabase.from('sales').select('*, sale_items(*)').eq('system_type', type).order('created_at', { ascending: false }).limit(50);
-    const { data: payms } = await supabase.from('payments').select('*').eq('system_type', type).order('date', { ascending: false });
-    const { data: cats } = await supabase.from('product_categories').select('*').eq('system_type', type);
+    try {
+      const [prodsRes, supsRes, salesRes, paymsRes, catsRes] = await Promise.all([
+        supabase.from('products').select('*').eq('category', type).order('name'),
+        supabase.from('suppliers').select('*').eq('category', type).order('name'),
+        supabase.from('sales').select('*, sale_items(*)').eq('system_type', type).order('created_at', { ascending: false }).limit(50),
+        supabase.from('payments').select('*').eq('system_type', type).order('date', { ascending: false }),
+        supabase.from('product_categories').select('*').eq('system_type', type)
+      ]);
 
-    if (prods) setProducts(prods);
-    if (sups) setSuppliers(sups);
-    if (sales) setSalesHistory(sales);
-    if (payms) setPayments(payms);
-    if (cats) setCategories(cats);
-    setLoading(false);
+      if (prodsRes.data) setProducts(prodsRes.data);
+      if (supsRes.data) setSuppliers(supsRes.data);
+      if (salesRes.data) setSalesHistory(salesRes.data);
+      if (paymsRes.data) setPayments(paymsRes.data);
+      if (catsRes.data) setCategories(catsRes.data);
+    } catch (err) {
+      console.error("Error cargando datos:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleBarcodeSubmit = (e: React.FormEvent) => {
@@ -87,7 +94,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
 
   const handleAddToCart = (product: Product) => {
     if (product.stock <= 0) {
-      alert("Sin stock disponible");
+      alert("⚠️ Sin stock disponible");
       return;
     }
     setCart(prev => {
@@ -111,6 +118,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   };
 
   const handleCheckout = async () => {
+    if (cart.length === 0) return;
     const total = cart.reduce((acc, curr) => acc + (curr.product.price * curr.qty), 0);
     setLoading(true);
     try {
@@ -131,6 +139,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       
       setCart([]);
       setShowCheckoutModal(false);
+      // El tiempo real se encargará de refrescar la UI
     } catch (err) { 
       alert("Error al procesar venta"); 
     } finally { 
@@ -141,25 +150,31 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const handleSaveSupplier = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
-    const name = f.get('name') as string;
-    const whatsapp = f.get('whatsapp') as string;
+    const supplierData = {
+      name: (f.get('name') as string).toUpperCase(),
+      whatsapp: f.get('whatsapp') as string,
+      category: type
+    };
     
     setLoading(true);
     try {
-      const { error } = await supabase.from('suppliers').insert({
-        name, whatsapp, category: type
-      });
+      const { error } = await supabase.from('suppliers').insert(supplierData);
       if (error) throw error;
       setShowSupplierModal(false);
+      // fetchData() se llamará automáticamente por el suscriptor de Realtime
     } catch (err) {
-      alert("Error al guardar proveedor");
+      console.error(err);
+      alert("Error al guardar proveedor. Verifique la conexión.");
     } finally {
       setLoading(false);
     }
   };
 
   const subtotalCart = cart.reduce((a, c) => a + (c.product.price * c.qty), 0);
-  const filteredInventory = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.barcode.includes(searchTerm));
+  const filteredInventory = products.filter(p => 
+    p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (p.barcode && p.barcode.includes(searchTerm))
+  );
 
   const stats = useMemo(() => {
     const validSales = salesHistory.filter(s => !s.is_voided);
@@ -173,7 +188,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       <nav className={`${colors.primary} text-white px-6 py-4 flex items-center justify-between shadow-lg sticky top-0 z-50`}>
         <div className="flex items-center gap-4">
           <button onClick={onBack} className="p-2 hover:bg-white/20 rounded-full transition-colors"><ArrowLeft size={24} /></button>
-          <h1 className="text-2xl font-black uppercase tracking-tighter">Amazonia {type}</h1>
+          <h1 className="text-2xl font-black uppercase tracking-tighter italic">Amazonia {type}</h1>
         </div>
         <div className="hidden md:flex bg-white/20 rounded-2xl p-1 gap-1">
           {['VENDER', 'INVENTARIO', 'HISTORIAL', 'PROVEEDORES', 'FINANZAS'].map(tab => (
@@ -188,7 +203,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
             <div className="space-y-6">
               <form onSubmit={handleBarcodeSubmit} className="relative group">
                 <Scan className={`absolute left-5 top-1/2 -translate-y-1/2 ${colors.text}`} size={24} />
-                <input ref={barcodeInputRef} type="text" value={barcodeInput} onChange={(e) => setBarcodeInput(e.target.value)} autoFocus className="w-full pl-16 p-6 bg-slate-900 text-white rounded-3xl outline-none text-xl font-black shadow-2xl focus:ring-4 focus:ring-blue-500/20 transition-all" placeholder="Escanear Producto..." />
+                <input ref={barcodeInputRef} type="text" value={barcodeInput} onChange={(e) => setBarcodeInput(e.target.value)} autoFocus className="w-full pl-16 p-6 bg-slate-900 text-white rounded-3xl outline-none text-xl font-black shadow-2xl focus:ring-4 focus:ring-blue-500/20 transition-all placeholder:text-slate-600" placeholder="Escanear Producto..." />
               </form>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
                 {products.filter(p => p.stock > 0).map(p => (
@@ -204,7 +219,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
             </div>
 
             <div className="bg-white p-8 rounded-[3rem] shadow-2xl border-t-8 border-slate-900 h-fit sticky top-28">
-              <div className="flex items-center gap-3 mb-8"><ShoppingCart size={24} className="text-slate-400" /><h3 className="text-2xl font-black uppercase tracking-tight">Caja Actual</h3></div>
+              <div className="flex items-center gap-3 mb-8"><ShoppingCart size={24} className="text-slate-400" /><h3 className="text-2xl font-black uppercase tracking-tight">Caja {type}</h3></div>
               <div className="space-y-4 max-h-[40vh] overflow-y-auto mb-8 pr-2 custom-scrollbar">
                 {cart.length === 0 ? (
                   <div className="text-center py-16 opacity-10">
@@ -244,17 +259,17 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
         {activeTab === 'PROVEEDORES' && (
           <div className="space-y-6 animate-in fade-in">
              <div className="flex justify-between items-center">
-                <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter">Directorio Proveedores</h2>
-                <button onClick={() => setShowSupplierModal(true)} className={`${colors.primary} text-white px-8 py-4 rounded-3xl font-black uppercase text-xs shadow-xl flex items-center gap-2`}><Plus /> Nuevo Proveedor</button>
+                <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter italic">Directorio Proveedores</h2>
+                <button onClick={() => setShowSupplierModal(true)} className={`${colors.primary} text-white px-8 py-4 rounded-3xl font-black uppercase text-xs shadow-xl flex items-center gap-2`}><Plus size={18} /> Nuevo Proveedor</button>
              </div>
              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {suppliers.map(sup => (
                   <div key={sup.id} className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex flex-col gap-4 group hover:shadow-xl transition-all">
                     <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">{sup.name}</h3>
                     {sup.whatsapp && (
-                      <a href={`https://wa.me/${sup.whatsapp}`} target="_blank" rel="noopener noreferrer" className="bg-emerald-500 text-white py-4 rounded-2xl font-black text-xs text-center flex items-center justify-center gap-2 shadow-lg hover:bg-emerald-600 transition-all"><PhoneCall size={18} /> PEDIDO WHATSAPP</a>
+                      <a href={`https://wa.me/${sup.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="bg-emerald-500 text-white py-4 rounded-2xl font-black text-xs text-center flex items-center justify-center gap-2 shadow-lg hover:bg-emerald-600 transition-all"><PhoneCall size={18} /> PEDIDO WHATSAPP</a>
                     )}
-                    <button onClick={async () => { if(confirm("¿Eliminar?")) await supabase.from('suppliers').delete().eq('id', sup.id); }} className="text-red-300 hover:text-red-500 text-[10px] font-black uppercase flex items-center gap-2 justify-center mt-2 opacity-50 group-hover:opacity-100 transition-all"><Trash2 size={14}/> Eliminar</button>
+                    <button onClick={async () => { if(confirm("¿Eliminar este proveedor?")) await supabase.from('suppliers').delete().eq('id', sup.id); }} className="text-red-300 hover:text-red-500 text-[10px] font-black uppercase flex items-center gap-2 justify-center mt-2 opacity-50 group-hover:opacity-100 transition-all"><Trash2 size={14}/> Eliminar</button>
                   </div>
                 ))}
                 {suppliers.length === 0 && <div className="col-span-full p-20 text-center text-slate-300 font-black uppercase italic tracking-widest border-2 border-dashed rounded-[3rem]">No hay proveedores registrados</div>}
@@ -262,17 +277,16 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
           </div>
         )}
 
-        {/* Los demás estados se actualizan por el canal de tiempo real global */}
         {activeTab === 'INVENTARIO' && (
           <div className="space-y-6 animate-in fade-in">
             <div className="flex flex-col md:flex-row gap-4">
               <div className="relative flex-1">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-                <input type="text" placeholder="Buscar por nombre o código..." className="w-full pl-12 p-4 rounded-2xl border shadow-sm outline-none" onChange={(e) => setSearchTerm(e.target.value)} />
+                <input type="text" placeholder="Buscar por nombre o código..." className="w-full pl-12 p-4 rounded-2xl border shadow-sm outline-none font-bold" onChange={(e) => setSearchTerm(e.target.value)} />
               </div>
               <button onClick={() => { setEditingProduct(null); setShowProductModal(true); }} className={`${colors.primary} text-white px-8 py-4 rounded-2xl font-black uppercase text-xs shadow-lg`}>+ Nuevo Producto</button>
             </div>
-            <div className="bg-white rounded-[2rem] border overflow-hidden shadow-sm">
+            <div className="bg-white rounded-[2rem] border overflow-hidden shadow-sm overflow-x-auto">
               <table className="w-full text-left">
                 <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b">
                   <tr><th className="p-6">Producto</th><th className="p-6">Código</th><th className="p-6">Stock</th><th className="p-6">Venta</th><th className="p-6 text-right">Acciones</th></tr>
@@ -301,25 +315,37 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       {showSupplierModal && (
         <div className="fixed inset-0 bg-slate-900/60 z-[120] flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-[3rem] w-full max-w-md p-10 shadow-2xl animate-in zoom-in-95">
-            <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-black uppercase tracking-tight text-slate-800">Registrar Proveedor</h2><button onClick={() => setShowSupplierModal(false)}><X /></button></div>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-black uppercase tracking-tight text-slate-800">Registrar Proveedor</h2>
+              <button onClick={() => setShowSupplierModal(false)} className="p-2 hover:bg-slate-100 rounded-full"><X size={20}/></button>
+            </div>
             <form onSubmit={handleSaveSupplier} className="space-y-4">
-              <div><label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Nombre / Empresa</label><input name="name" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold uppercase" placeholder="Ej: Distribuidora Yerba" /></div>
-              <div><label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">WhatsApp (Con código de país)</label><input name="whatsapp" placeholder="Ej: 5491122334455" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" /></div>
-              <button type="submit" className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black uppercase shadow-xl hover:bg-black transition-all mt-4 tracking-widest">GUARDAR PROVEEDOR</button>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block ml-2">Nombre / Empresa</label>
+                <input name="name" required className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold uppercase outline-none focus:ring-2 focus:ring-slate-200" placeholder="Ej: Distribuidora Yerba" />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block ml-2">WhatsApp</label>
+                <input name="whatsapp" placeholder="Ej: 5491122334455" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-slate-200" />
+              </div>
+              <button type="submit" className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black uppercase shadow-xl hover:bg-black transition-all mt-4 tracking-widest flex items-center justify-center gap-2">
+                {loading ? <Loader2 className="animate-spin" size={20}/> : 'GUARDAR PROVEEDOR'}
+              </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* OTROS MODALES (Checkout, Producto) siguen aquí... */}
+      {/* MODAL COBRO */}
       {showCheckoutModal && (
         <div className="fixed inset-0 bg-slate-900/60 z-[120] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-[3rem] w-full max-sm p-10 shadow-2xl animate-in zoom-in-95">
-            <h2 className="text-2xl font-black mb-8 uppercase text-center tracking-tighter">Finalizar Venta</h2>
+          <div className="bg-white rounded-[3rem] w-full max-w-sm p-10 shadow-2xl animate-in zoom-in-95">
+            <h2 className="text-2xl font-black mb-8 uppercase text-center tracking-tighter italic">Finalizar Venta</h2>
             <div className="space-y-3 mb-8">
               {['EFECTIVO', 'TRANSFERENCIA', 'QR'].map(m => (
                 <button key={m} onClick={() => setSelectedPaymentMethod(m)} className={`w-full p-5 rounded-2xl border-2 font-black transition-all flex items-center justify-between ${selectedPaymentMethod === m ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-100 text-slate-400 hover:bg-slate-50'}`}>
                   {m}
+                  {selectedPaymentMethod === m && <div className="w-2 h-2 bg-blue-600 rounded-full"/>}
                 </button>
               ))}
             </div>
@@ -327,8 +353,47 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Monto a Cobrar</p>
                <div className="text-4xl font-black text-white">${subtotalCart.toLocaleString()}</div>
             </div>
-            <button onClick={handleCheckout} className="w-full bg-blue-600 text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl">CONFIRMAR PAGO</button>
-            <button onClick={() => setShowCheckoutModal(false)} className="w-full mt-6 text-[10px] font-black text-slate-300 uppercase tracking-widest hover:text-slate-500">Volver</button>
+            <button onClick={handleCheckout} className="w-full bg-blue-600 text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all">CONFIRMAR VENTA</button>
+            <button onClick={() => setShowCheckoutModal(false)} className="w-full mt-6 text-[10px] font-black text-slate-300 uppercase tracking-widest hover:text-slate-500 transition-colors">Volver</button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL PRODUCTO */}
+      {showProductModal && (
+        <div className="fixed inset-0 bg-slate-900/60 z-[120] flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-[3rem] w-full max-w-md p-10 shadow-2xl animate-in zoom-in-95">
+            <h2 className="text-2xl font-black mb-8 uppercase tracking-tighter italic">{editingProduct ? 'Editar' : 'Nuevo'} Producto</h2>
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              const f = new FormData(e.currentTarget);
+              const cost = Number(f.get('cost'));
+              const margin = Number(f.get('margin'));
+              const price = cost * (1 + margin / 100);
+              const data = {
+                name: f.get('name'), barcode: f.get('barcode'), stock: Number(f.get('stock')),
+                min_stock: Number(f.get('min_stock')), cost, margin, price, category: type
+              };
+              if(editingProduct) await supabase.from('products').update(data).eq('id', editingProduct.id);
+              else await supabase.from('products').insert(data);
+              setShowProductModal(false);
+            }} className="space-y-4">
+              <input name="name" defaultValue={editingProduct?.name} required placeholder="Nombre del producto" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold uppercase" />
+              <div className="flex gap-2">
+                <input name="barcode" defaultValue={editingProduct?.barcode} placeholder="Código de barras" className="flex-1 p-4 bg-slate-50 border rounded-2xl font-mono text-sm" />
+                <div className="bg-slate-900 text-white p-4 rounded-2xl flex items-center shadow-md"><Scan size={20}/></div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <input name="stock" type="number" defaultValue={editingProduct?.stock || 0} required placeholder="Stock" className="w-full p-4 bg-slate-50 border rounded-2xl font-black" />
+                <input name="min_stock" type="number" defaultValue={editingProduct?.min_stock || 5} required placeholder="Aviso Mínimo" className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-red-500" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <input name="cost" type="number" step="0.01" defaultValue={editingProduct?.cost || 0} required placeholder="Costo $" className="w-full p-4 bg-slate-50 border rounded-2xl font-black" />
+                <input name="margin" type="number" defaultValue={editingProduct?.margin || 30} required placeholder="Margen %" className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-blue-600" />
+              </div>
+              <button type="submit" className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black uppercase tracking-widest mt-4 shadow-xl hover:scale-[1.02] active:scale-95 transition-all">Guardar Producto</button>
+              <button type="button" onClick={() => setShowProductModal(false)} className="w-full text-[10px] font-black text-slate-300 uppercase py-2 hover:text-slate-500">Cerrar</button>
+            </form>
           </div>
         </div>
       )}
@@ -336,7 +401,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       {loading && (
         <div className="fixed bottom-10 right-10 bg-white p-5 rounded-3xl shadow-2xl flex items-center gap-4 border-2 z-[1000] animate-bounce">
           <Loader2 className="animate-spin text-blue-500" size={24} />
-          <span className="font-black text-[10px] uppercase text-slate-500">Sincronizando...</span>
+          <span className="font-black text-[10px] uppercase text-slate-500">Sincronizando Amazonia...</span>
         </div>
       )}
     </div>
