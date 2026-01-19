@@ -190,6 +190,60 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     }
   };
 
+  const handleSaveSupplier = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const supplierData = {
+      name: formData.get('name') as string,
+      whatsapp: formData.get('whatsapp') as string,
+      category: type
+    };
+    try {
+      const { error } = await supabase.from('suppliers').insert(supplierData);
+      if (error) throw error;
+      setShowSupplierModal(false);
+      fetchData();
+    } catch (err: any) { alert(err.message); }
+  };
+
+  const deleteSupplier = async (id: string) => {
+    if (confirm("¿Eliminar proveedor?")) {
+      try {
+        await supabase.from('suppliers').delete().eq('id', id);
+        fetchData();
+      } catch (err: any) { alert(err.message); }
+    }
+  };
+
+  const handleSavePayment = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const paymentData = {
+      description: formData.get('description') as string,
+      amount: parseFloat((formData.get('amount') as string).replace(',', '.')) || 0,
+      type: formData.get('type') as any,
+      date: formData.get('date') as string,
+      time: formData.get('time') as string,
+      payment_method: formData.get('payment_method') as string,
+      system_type: type
+    };
+    try {
+      const { error } = await supabase.from('payments').insert(paymentData);
+      if (error) throw error;
+      setShowPaymentModal(false);
+      fetchData();
+    } catch (err: any) { alert(err.message); }
+  };
+
+  const deletePayment = async (id: string) => {
+    if (confirm("¿Eliminar registro de pago?")) {
+      try {
+        await supabase.from('payments').delete().eq('id', id);
+        fetchData();
+      } catch (err: any) { alert(err.message); }
+    }
+  };
+
   const generatePDF = (saleData: any, items: any[]) => {
     const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: [80, 150] });
     const isVoided = saleData.is_voided;
@@ -264,26 +318,6 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       setShowVoidModal(false); setVoidingSale(null); setVoidCode(''); fetchData();
     } catch (err: any) { alert(err.message); }
     finally { setLoading(false); }
-  };
-
-  const handleSavePayment = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const paymentData = {
-      description: formData.get('description') as string,
-      amount: parseFloat((formData.get('amount') as string).replace(',', '.')) || 0,
-      type: formData.get('type') as any,
-      date: formData.get('date') as string,
-      time: formData.get('time') as string,
-      payment_method: formData.get('payment_method') as string,
-      system_type: type
-    };
-    try {
-      const { error } = await supabase.from('payments').insert(paymentData);
-      if (error) throw error;
-      setShowPaymentModal(false);
-      fetchData();
-    } catch (err: any) { alert(err.message); }
   };
 
   const handleAddToCart = (p: Product) => {
@@ -411,6 +445,83 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
               ))}
               {categories.length === 0 && <p className="text-center text-slate-300 py-4 text-xs font-bold uppercase">Sin categorías</p>}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Proveedores */}
+      {showSupplierModal && (
+        <div className="fixed inset-0 bg-black/70 z-[110] flex items-center justify-center p-4 backdrop-blur-md">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl animate-in zoom-in-95">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-black text-slate-800 uppercase">Nuevo Proveedor</h2>
+              <button onClick={() => setShowSupplierModal(false)}><X /></button>
+            </div>
+            <form onSubmit={handleSaveSupplier} className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Nombre / Razón Social</label>
+                <input name="name" required className="w-full p-4 bg-slate-50 border rounded-2xl outline-none focus:border-blue-500 font-bold" />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">WhatsApp (Sin +)</label>
+                <input name="whatsapp" placeholder="Ej: 54911..." className="w-full p-4 bg-slate-50 border rounded-2xl outline-none focus:border-blue-500 font-bold" />
+              </div>
+              <button type="submit" className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black shadow-xl active:scale-95 transition-all uppercase tracking-widest flex items-center justify-center gap-2">
+                <Save size={18} /> GUARDAR PROVEEDOR
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Pagos */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 bg-black/70 z-[110] flex items-center justify-center p-4 backdrop-blur-md">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl animate-in zoom-in-95">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-black text-slate-800 uppercase">Registrar Egreso</h2>
+              <button onClick={() => setShowPaymentModal(false)}><X /></button>
+            </div>
+            <form onSubmit={handleSavePayment} className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Descripción del Gasto</label>
+                <input name="description" required className="w-full p-4 bg-slate-50 border rounded-2xl outline-none focus:border-blue-500 font-bold" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Monto ($)</label>
+                  <input name="amount" type="text" required className="w-full p-4 bg-slate-50 border rounded-2xl outline-none focus:border-blue-500 font-black text-xl" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Tipo</label>
+                  <select name="type" className="w-full p-4 bg-slate-50 border rounded-2xl outline-none focus:border-blue-500 font-bold text-xs">
+                    <option value="PROVEEDOR">PROVEEDOR</option>
+                    <option value="SERVICIO">SERVICIO (LUZ/AGUA)</option>
+                    <option value="EMPLEADO">SUELDO / COMISIÓN</option>
+                    <option value="RETIRO">RETIRO CAPITAL</option>
+                    <option value="OTRO">OTRO GASTO</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Fecha</label>
+                  <input name="date" type="date" defaultValue={new Date().toISOString().split('T')[0]} required className="w-full p-4 bg-slate-50 border rounded-2xl outline-none focus:border-blue-500 font-bold" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Medio</label>
+                  <select name="payment_method" className="w-full p-4 bg-slate-50 border rounded-2xl outline-none focus:border-blue-500 font-bold text-xs">
+                    <option value="EFECTIVO">EFECTIVO</option>
+                    <option value="TRANSFERENCIA">TRANSFERENCIA</option>
+                    <option value="OTRO">OTRO</option>
+                  </select>
+                </div>
+              </div>
+              <input name="time" type="hidden" defaultValue={new Date().toLocaleTimeString('es-AR', { hour12: false })} />
+              <button type="submit" className="w-full bg-red-500 text-white py-4 rounded-2xl font-black shadow-xl active:scale-95 transition-all uppercase tracking-widest flex items-center justify-center gap-2">
+                <ArrowDownCircle size={18} /> CONFIRMAR GASTO
+              </button>
+            </form>
           </div>
         </div>
       )}
@@ -629,9 +740,104 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
           </div>
         )}
 
+        {activeTab === 'PROVEEDORES' && (
+          <div className="space-y-6 animate-in fade-in duration-500">
+            <div className="flex justify-between items-center">
+              <h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">Nuestros Proveedores</h2>
+              <button onClick={() => setShowSupplierModal(true)} className={`${colors.primary} text-white px-8 py-4 rounded-3xl font-black flex items-center gap-2 shadow-xl active:scale-95 transition-all text-xs tracking-widest`}>
+                <Plus /> NUEVO PROVEEDOR
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {suppliers.map(sup => (
+                <div key={sup.id} className="bg-white p-6 rounded-[2.5rem] border shadow-sm flex flex-col gap-4 group hover:shadow-xl transition-all">
+                  <div className="flex justify-between items-start">
+                    <div className="p-4 bg-slate-50 rounded-3xl">
+                      <Users className={`${colors.text}`} size={24} />
+                    </div>
+                    <button onClick={() => deleteSupplier(sup.id)} className="p-2 text-red-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all">
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-slate-800">{sup.name}</h3>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Suministros Amazonia</p>
+                  </div>
+                  {sup.whatsapp && (
+                    <a 
+                      href={`https://wa.me/${sup.whatsapp}`} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="mt-2 bg-emerald-500 text-white py-4 rounded-2xl font-black text-xs text-center flex items-center justify-center gap-2 shadow-lg hover:bg-emerald-600 transition-all"
+                    >
+                      <PhoneCall size={18} /> CONTACTAR WHATSAPP
+                    </a>
+                  )}
+                </div>
+              ))}
+              {suppliers.length === 0 && (
+                <div className="col-span-full py-20 text-center text-slate-300 font-bold uppercase tracking-widest italic border-2 border-dashed rounded-[3rem]">
+                  No hay proveedores registrados aún
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'PAGOS' && (
+          <div className="space-y-6 animate-in fade-in duration-500">
+            <div className="flex justify-between items-center">
+              <h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">Salidas de Dinero</h2>
+              <button onClick={() => setShowPaymentModal(true)} className="bg-red-500 text-white px-8 py-4 rounded-3xl font-black flex items-center gap-2 shadow-xl active:scale-95 transition-all text-xs tracking-widest">
+                <ArrowDownCircle /> REGISTRAR PAGO
+              </button>
+            </div>
+            <div className="bg-white rounded-[3rem] shadow-sm border overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 border-b text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
+                  <tr>
+                    <th className="px-8 py-6">Fecha / Descripción</th>
+                    <th className="px-8 py-6">Categoría</th>
+                    <th className="px-8 py-6">Medio</th>
+                    <th className="px-8 py-6">Monto</th>
+                    <th className="px-8 py-6 text-right">Acción</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {filteredPayments.map(p => (
+                    <tr key={p.id} className="hover:bg-slate-50/50 group">
+                      <td className="px-8 py-5">
+                        <p className="font-black text-slate-800">{p.description}</p>
+                        <p className="text-[10px] font-bold text-slate-300 uppercase">{new Date(p.date + 'T12:00:00').toLocaleDateString('es-AR')}</p>
+                      </td>
+                      <td className="px-8 py-5">
+                        <span className={`text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-widest ${
+                          p.type === 'PROVEEDOR' ? 'bg-blue-50 text-blue-600' : 
+                          p.type === 'EMPLEADO' ? 'bg-amber-50 text-amber-600' : 'bg-slate-50 text-slate-400'
+                        }`}>
+                          {p.type}
+                        </span>
+                      </td>
+                      <td className="px-8 py-5 text-[10px] font-black text-slate-400">{p.payment_method}</td>
+                      <td className="px-8 py-5 font-black text-red-500 text-lg">-${p.amount}</td>
+                      <td className="px-8 py-5 text-right">
+                        <button onClick={() => deletePayment(p.id)} className="p-3 text-red-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100">
+                          <Trash2 size={18} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {filteredPayments.length === 0 && (
+                <div className="py-20 text-center text-slate-200 font-black uppercase tracking-[0.3em] italic">No hay pagos registrados en este periodo</div>
+              )}
+            </div>
+          </div>
+        )}
+
         {activeTab === 'CUENTAS' && (
           <div className="space-y-12 animate-in fade-in duration-500 max-w-5xl mx-auto">
-            {/* Alertas de Stock (Nueva Sección) */}
             <div className="bg-red-50 border-2 border-red-100 p-8 rounded-[3rem] shadow-sm">
               <div className="flex items-center gap-3 mb-6">
                 <div className="p-3 bg-red-500 text-white rounded-2xl shadow-lg"><AlertTriangle size={24}/></div>
