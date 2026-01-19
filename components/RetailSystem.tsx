@@ -3,9 +3,9 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   ArrowLeft, Package, ShoppingCart, Users, TrendingUp, Search, Plus, 
   Trash2, Printer, FileText, PhoneCall, Save, Barcode, ShoppingBag, Leaf, Loader2, X, CreditCard, QrCode, Banknote, RefreshCcw, Filter, AlertTriangle, Percent, Minus, PlusCircle, Calendar, Receipt, Briefcase, Landmark,
-  Clock, Scan, Ban, ShieldCheck, History, Calculator, PiggyBank, Wallet, ArrowDownCircle, ArrowUpCircle
+  Clock, Scan, Ban, ShieldCheck, History, Calculator, PiggyBank, Wallet, ArrowDownCircle, ArrowUpCircle, Settings, Layers
 } from 'lucide-react';
-import { Product, Supplier, Sale, Payment } from '../types';
+import { Product, Supplier, Sale, Payment, ProductCategory } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { supabase } from '../lib/supabase';
 import { jsPDF } from 'jspdf';
@@ -19,10 +19,11 @@ type TabType = 'INVENTARIO' | 'VENDER' | 'HISTORIAL DE VENTAS' | 'PROVEEDORES' |
 
 const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const [activeTab, setActiveTab] = useState<TabType>('INVENTARIO');
-  const [products, setProducts] = useState<any[]>([]);
-  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<ProductCategory[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
-  const [cart, setCart] = useState<{ product: any; qty: number }[]>([]);
+  const [cart, setCart] = useState<{ product: Product; qty: number }[]>([]);
   const [salesHistory, setSalesHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -33,12 +34,13 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
   const [historyFilter, setHistoryFilter] = useState<'HOY' | 'SEMANA' | 'MES' | 'AÑO' | 'CALENDARIO'>('HOY');
   const [selectedHistoryDate, setSelectedHistoryDate] = useState(new Date().toISOString().split('T')[0]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('TODAS');
 
   // Modales y estados de formulario
   const [showProductModal, setShowProductModal] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [showSupplierModal, setShowSupplierModal] = useState(false);
-  const [editingSupplier, setEditingSupplier] = useState<any>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   
@@ -99,11 +101,13 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     setLoading(true);
     try {
       const { data: prods } = await supabase.from('products').select('*').eq('category', type).order('name', { ascending: true });
+      const { data: cats } = await supabase.from('product_categories').select('*').eq('system_type', type).order('name', { ascending: true });
       const { data: sups } = await supabase.from('suppliers').select('*').eq('category', type).order('name', { ascending: true });
       const { data: payms } = await supabase.from('payments').select('*').eq('system_type', type).order('date', { ascending: false });
       const { data: sales } = await supabase.from('sales').select('*, sale_items(*)').eq('system_type', type).order('created_at', { ascending: false });
 
       if (prods) setProducts(prods);
+      if (cats) setCategories(cats);
       if (sups) setSuppliers(sups);
       if (payms) setPayments(payms);
       if (sales) setSalesHistory(sales);
@@ -141,6 +145,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       barcode: (e.currentTarget.elements.namedItem('barcode') as HTMLInputElement).value,
       stock: stockValue,
       min_stock: Number((e.currentTarget.elements.namedItem('min_stock') as HTMLInputElement).value),
+      product_category: (e.currentTarget.elements.namedItem('product_category') as HTMLSelectElement).value,
       cost: parseFloat(formCost.replace(',', '.')) || 0,
       margin: parseFloat(formMargin.replace(',', '.')) || 0,
       price: formPrice,
@@ -153,6 +158,26 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       if (error) throw error;
       setShowProductModal(false); setEditingProduct(null); fetchData();
     } catch (err: any) { alert(err.message); }
+  };
+
+  const handleSaveCategory = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const name = (e.currentTarget.elements.namedItem('cat_name') as HTMLInputElement).value;
+    try {
+      const { error } = await supabase.from('product_categories').insert({ name, system_type: type });
+      if (error) throw error;
+      fetchData();
+      (e.target as HTMLFormElement).reset();
+    } catch (err: any) { alert(err.message); }
+  };
+
+  const deleteCategory = async (id: string) => {
+    if (confirm("¿Eliminar categoría? Los productos asociados no se eliminarán pero quedarán sin categoría.")) {
+      try {
+        await supabase.from('product_categories').delete().eq('id', id);
+        fetchData();
+      } catch (err: any) { alert(err.message); }
+    }
   };
 
   const deleteProduct = async (id: string) => {
@@ -241,22 +266,6 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     finally { setLoading(false); }
   };
 
-  const handleSaveSupplier = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const supplierData = {
-      name: formData.get('sup_name') as string,
-      whatsapp: formData.get('sup_whatsapp') as string,
-      category: type
-    };
-    try {
-      const { error } = await supabase.from('suppliers').insert(supplierData);
-      if (error) throw error;
-      setShowSupplierModal(false);
-      fetchData();
-    } catch (err: any) { alert(err.message); }
-  };
-
   const handleSavePayment = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -277,7 +286,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     } catch (err: any) { alert(err.message); }
   };
 
-  const handleAddToCart = (p: any) => {
+  const handleAddToCart = (p: Product) => {
     setCart(prev => {
       const exists = prev.find(item => item.product.id === p.id);
       if ((exists ? exists.qty : 0) >= p.stock) { alert("Sin stock"); return prev; }
@@ -316,6 +325,16 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       }
     });
   }, [salesHistory, historyFilter, selectedHistoryDate]);
+
+  // Filtrado de Inventario (Nombre, Barras y Categoría)
+  const filteredInventory = useMemo(() => {
+    return products.filter(p => {
+      const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                            p.barcode.includes(searchTerm);
+      const matchesCategory = categoryFilter === 'TODAS' || p.product_category === categoryFilter;
+      return matchesSearch && matchesCategory;
+    });
+  }, [products, searchTerm, categoryFilter]);
 
   // Filtrado de Pagos para Cuentas
   const filteredPayments = useMemo(() => {
@@ -364,9 +383,38 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     return { fondo, ventaTotal, total1, tarjetas, egresos, retiros, total2, totalIngresos, totalEgresos, totalFinal };
   }, [filteredHistory, filteredPayments, cashDrawerFund]);
 
+  // Alertas de Stock
+  const stockAlerts = useMemo(() => {
+    return products.filter(p => p.stock <= p.min_stock);
+  }, [products]);
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col relative">
-      {/* Modales existentes se mantienen igual */}
+      {/* Modal Categorías */}
+      {showCategoryModal && (
+        <div className="fixed inset-0 bg-black/70 z-[110] flex items-center justify-center p-4 backdrop-blur-md">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl animate-in zoom-in-95">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-black text-slate-800 uppercase flex items-center gap-2"><Layers className="text-blue-500" /> CATEGORÍAS</h2>
+              <button onClick={() => setShowCategoryModal(false)}><X /></button>
+            </div>
+            <form onSubmit={handleSaveCategory} className="mb-6 flex gap-2">
+              <input name="cat_name" placeholder="Nueva Categoría..." required className="flex-1 p-4 bg-slate-50 border rounded-2xl outline-none focus:border-blue-500" />
+              <button type="submit" className="p-4 bg-slate-900 text-white rounded-2xl"><Plus /></button>
+            </form>
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+              {categories.map(c => (
+                <div key={c.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border">
+                  <span className="font-bold text-slate-700">{c.name}</span>
+                  <button onClick={() => deleteCategory(c.id)} className="text-red-400 hover:text-red-600"><Trash2 size={18}/></button>
+                </div>
+              ))}
+              {categories.length === 0 && <p className="text-center text-slate-300 py-4 text-xs font-bold uppercase">Sin categorías</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showVoidModal && (
         <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 backdrop-blur-md">
           <div className="bg-white rounded-[2.5rem] w-full max-w-sm p-8 shadow-2xl animate-in zoom-in-95">
@@ -436,26 +484,52 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       </nav>
 
       <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
-        {/* INVENTARIO, VENDER, HISTORIAL, PROVEEDORES, PAGOS se mantienen igual */}
         {activeTab === 'INVENTARIO' && (
           <div className="space-y-6">
-            <div className="flex flex-col md:flex-row gap-4 justify-between">
-              <div className="relative w-full md:w-96">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-                <input type="text" placeholder="Buscar..." className="w-full pl-12 pr-4 py-4 rounded-3xl border outline-none shadow-sm" onChange={(e) => setSearchTerm(e.target.value)} />
+            <div className="flex flex-col md:flex-row gap-4 justify-between items-end">
+              <div className="flex flex-col md:flex-row gap-4 flex-1 w-full">
+                <div className="relative flex-1">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                  <input type="text" placeholder="Producto o Código..." className="w-full pl-12 pr-4 py-4 rounded-3xl border outline-none shadow-sm" onChange={(e) => setSearchTerm(e.target.value)} />
+                </div>
+                <div className="relative w-full md:w-60">
+                   <select 
+                    value={categoryFilter} 
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    className="w-full appearance-none pl-4 pr-10 py-4 rounded-3xl border outline-none shadow-sm font-bold text-xs uppercase"
+                   >
+                     <option value="TODAS">TODAS LAS CATEGORÍAS</option>
+                     {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                   </select>
+                   <Filter className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                </div>
               </div>
-              <button onClick={() => { setEditingProduct(null); setShowProductModal(true); }} className={`${colors.primary} text-white px-10 py-4 rounded-3xl font-black flex items-center gap-2 shadow-xl active:scale-95 transition-all uppercase text-xs tracking-widest`}><Plus /> NUEVO PRODUCTO</button>
+              <div className="flex gap-2">
+                <button onClick={() => setShowCategoryModal(true)} className="bg-slate-100 text-slate-600 px-6 py-4 rounded-3xl font-black flex items-center gap-2 hover:bg-slate-200 transition-all uppercase text-[10px] tracking-widest"><Settings size={16}/> GESTIONAR CATEGORÍAS</button>
+                <button onClick={() => { setEditingProduct(null); setShowProductModal(true); }} className={`${colors.primary} text-white px-10 py-4 rounded-3xl font-black flex items-center gap-2 shadow-xl active:scale-95 transition-all uppercase text-[10px] tracking-widest`}><Plus /> NUEVO PRODUCTO</button>
+              </div>
             </div>
             <div className="bg-white rounded-[3rem] shadow-sm border overflow-hidden">
               <table className="w-full text-left">
                 <thead className="bg-slate-50 border-b text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
-                  <tr><th className="px-8 py-6">Producto</th><th className="px-8 py-6">Stock</th><th className="px-8 py-6">Venta</th><th className="px-8 py-6 text-right">Acciones</th></tr>
+                  <tr><th className="px-8 py-6">Producto</th><th className="px-8 py-6">Categoría</th><th className="px-8 py-6">Stock</th><th className="px-8 py-6">Venta</th><th className="px-8 py-6 text-right">Acciones</th></tr>
                 </thead>
                 <tbody className="divide-y">
-                  {products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())).map(p => (
+                  {filteredInventory.map(p => (
                     <tr key={p.id} className="hover:bg-slate-50/50 group">
-                      <td className="px-8 py-5"><p className="font-black text-slate-800">{p.name}</p><p className="text-[10px] font-mono text-slate-300">{p.barcode || 'S/B'}</p></td>
-                      <td className="px-8 py-5"><span className={`font-black text-lg ${p.stock <= p.min_stock ? 'text-red-500' : 'text-slate-900'}`}>{p.stock}</span></td>
+                      <td className="px-8 py-5">
+                        <p className="font-black text-slate-800">{p.name}</p>
+                        <p className="text-[10px] font-mono text-slate-300">{p.barcode || 'S/B'}</p>
+                      </td>
+                      <td className="px-8 py-5">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-3 py-1 rounded-full">{p.product_category || 'SIN CAT.'}</span>
+                      </td>
+                      <td className="px-8 py-5">
+                        <div className="flex flex-col">
+                          <span className={`font-black text-lg ${p.stock <= p.min_stock ? 'text-red-500' : 'text-slate-900'}`}>{p.stock}</span>
+                          <span className="text-[9px] text-slate-300 font-bold uppercase">Mín: {p.min_stock}</span>
+                        </div>
+                      </td>
                       <td className="px-8 py-5 font-black text-slate-900">${p.price}</td>
                       <td className="px-8 py-5 text-right flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => { setEditingProduct(p); setFormCost(p.cost.toString()); setFormMargin(p.margin.toString()); setShowProductModal(true); }} className="p-3 text-blue-500 hover:bg-blue-50 rounded-2xl"><Save size={20} /></button>
@@ -465,6 +539,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                   ))}
                 </tbody>
               </table>
+              {filteredInventory.length === 0 && <div className="py-20 text-center text-slate-300 font-bold uppercase tracking-widest">No se encontraron productos</div>}
             </div>
           </div>
         )}
@@ -481,8 +556,11 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                   <input ref={barcodeInputRef} type="text" value={barcodeInput} onChange={(e) => setBarcodeInput(e.target.value)} placeholder="Escanee código..." className="w-full pl-14 pr-4 py-5 rounded-2xl bg-white/10 border border-white/20 text-white text-xl font-bold placeholder:text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
                 </form>
               </div>
-              <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border flex flex-col flex-1">
-                <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black text-slate-800 tracking-tight">Selección Manual</h3></div>
+              <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border flex flex-col flex-1 max-h-[600px]">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-black text-slate-800 tracking-tight">Manual</h3>
+                  <input type="text" placeholder="Buscar..." className="p-2 border rounded-xl text-xs outline-none" onChange={(e) => setSearchTerm(e.target.value)} />
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto pr-2">
                   {products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())).map(p => (
                     <button key={p.id} onClick={() => p.stock > 0 && handleAddToCart(p)} className={`p-4 border-2 rounded-[1.5rem] transition-all text-left flex flex-col justify-between ${p.stock <= 0 ? 'opacity-50 grayscale' : 'border-slate-50 hover:border-blue-400 bg-slate-50/30 active:scale-95'}`}>
@@ -551,39 +629,41 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
           </div>
         )}
 
-        {/* PESTAÑA PAGOS ACTUALIZADA */}
-        {activeTab === 'PAGOS' && (
-          <div className="space-y-8 animate-in fade-in duration-500">
-            <div className="flex justify-between items-center">
-              <h2 className="text-3xl font-black text-slate-800 tracking-tight">Egresos y Retiros</h2>
-              <button onClick={() => setShowPaymentModal(true)} className={`${colors.primary} text-white px-8 py-4 rounded-3xl font-black flex items-center gap-2 shadow-xl active:scale-95 uppercase text-xs tracking-widest`}><Plus size={20} /> NUEVO PAGO/RETIRO</button>
-            </div>
-            <div className="bg-white rounded-[3rem] shadow-sm border overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 tracking-widest">
-                  <tr><th className="px-8 py-5">Concepto</th><th className="px-8 py-5">Fecha</th><th className="px-8 py-5">Tipo</th><th className="px-8 py-5 text-right">Monto</th><th className="px-8 py-5 text-right">Acción</th></tr>
-                </thead>
-                <tbody className="divide-y">
-                  {payments.map(p => (
-                    <tr key={p.id} className="hover:bg-slate-50 group">
-                      <td className="px-8 py-5"><p className="font-black text-slate-800">{p.description}</p></td>
-                      <td className="px-8 py-5 text-xs text-slate-500">{p.date}</td>
-                      <td className="px-8 py-5 text-[9px] font-black uppercase text-slate-400">{p.type}</td>
-                      <td className="px-8 py-5 text-right font-black text-red-500">-${Number(p.amount).toFixed(2)}</td>
-                      <td className="px-8 py-5 text-right opacity-0 group-hover:opacity-100"><button onClick={() => supabase.from('payments').delete().eq('id', p.id).then(() => fetchData())} className="text-slate-300 hover:text-red-500"><Trash2 size={18}/></button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* PESTAÑA CUENTAS CON PLANILLA CAJA SOLICITADA */}
         {activeTab === 'CUENTAS' && (
-          <div className="space-y-12 animate-in fade-in duration-500 max-w-4xl mx-auto">
-            {/* Header de Selección de Período (compartido con historial) */}
-            <div className="bg-white p-6 rounded-[3rem] border shadow-sm flex flex-col md:flex-row gap-6 justify-between items-center mb-8">
+          <div className="space-y-12 animate-in fade-in duration-500 max-w-5xl mx-auto">
+            {/* Alertas de Stock (Nueva Sección) */}
+            <div className="bg-red-50 border-2 border-red-100 p-8 rounded-[3rem] shadow-sm">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-3 bg-red-500 text-white rounded-2xl shadow-lg"><AlertTriangle size={24}/></div>
+                <div>
+                  <h3 className="text-xl font-black text-red-800 tracking-tighter uppercase">Alertas de Reposición</h3>
+                  <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Productos con stock bajo o nulo</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {stockAlerts.map(p => (
+                  <div key={p.id} className="bg-white p-4 rounded-2xl border-2 border-red-50 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <p className="font-black text-slate-800 text-xs line-clamp-1">{p.name}</p>
+                      <p className="text-[9px] font-black text-slate-400 uppercase">{p.product_category || 'Sin Cat.'}</p>
+                    </div>
+                    <div className="flex justify-between items-center mt-3 pt-3 border-t">
+                      <div className="flex flex-col">
+                        <span className="text-[9px] font-black text-slate-300 uppercase">Actual</span>
+                        <span className="text-lg font-black text-red-600">{p.stock}</span>
+                      </div>
+                      <div className="flex flex-col items-end">
+                        <span className="text-[9px] font-black text-slate-300 uppercase">Mínimo</span>
+                        <span className="text-lg font-black text-slate-400">{p.min_stock}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {stockAlerts.length === 0 && <div className="col-span-full py-10 text-center text-emerald-500 font-bold uppercase tracking-widest text-xs italic">Todos los productos están bien stockeados</div>}
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-[3rem] border shadow-sm flex flex-col md:flex-row gap-6 justify-between items-center">
               <div className="flex flex-wrap gap-2">
                 {['HOY', 'SEMANA', 'MES', 'AÑO'].map(f => (
                   <button key={f} onClick={() => setHistoryFilter(f as any)} className={`px-6 py-2 rounded-xl font-black text-[10px] tracking-widest transition-all ${historyFilter === f ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>{f}</button>
@@ -595,80 +675,36 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-              {/* PLANILLA DE CAJA (SEGÚN IMAGEN) */}
               <div className="bg-white rounded-[3rem] border-2 border-slate-100 overflow-hidden shadow-2xl">
                 <div className="bg-fuchsia-300 p-6 flex justify-between items-center">
                   <h3 className="text-2xl font-black italic text-slate-900 tracking-tighter">fondo caja</h3>
                   <div className="flex items-center bg-white/40 rounded-xl px-3 border border-white/20">
                     <span className="text-sm font-black text-slate-900">$</span>
-                    <input 
-                      type="text" 
-                      value={cashDrawerFund} 
-                      onChange={(e) => handleNumericInput(e.target.value, setCashDrawerFund)}
-                      className="bg-transparent border-none outline-none w-24 p-2 text-right font-black text-slate-900"
-                      placeholder="0.00"
-                    />
+                    <input type="text" value={cashDrawerFund} onChange={(e) => handleNumericInput(e.target.value, setCashDrawerFund)} className="bg-transparent border-none outline-none w-24 p-2 text-right font-black text-slate-900" placeholder="0.00" />
                   </div>
                 </div>
                 <div className="p-6 space-y-4 font-black italic text-slate-700">
-                  <div className="flex justify-between items-center text-lg">
-                    <span>venta total</span>
-                    <span>${stats.ventaTotal.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-xl font-black text-slate-900 border-t-2 border-slate-900 pt-2 uppercase">
-                    <span>TOTAL</span>
-                    <span>${stats.total1.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-lg pt-4 text-slate-500">
-                    <span>tarjetas</span>
-                    <span className="text-red-400">-${stats.tarjetas.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-lg text-slate-500">
-                    <span>egresos</span>
-                    <span className="text-red-400">-${stats.egresos.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-lg text-slate-500 pb-2">
-                    <span>retiros</span>
-                    <span className="text-red-400">-${stats.retiros.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-2xl font-black text-slate-900 border-t-2 border-slate-900 pt-2 uppercase tracking-tighter">
-                    <span>TOTAL</span>
-                    <span className="bg-yellow-200 px-4 py-1 rounded-2xl">${stats.total2.toLocaleString()}</span>
-                  </div>
+                  <div className="flex justify-between items-center text-lg"><span>venta total</span><span>${stats.ventaTotal.toLocaleString()}</span></div>
+                  <div className="flex justify-between items-center text-xl font-black text-slate-900 border-t-2 border-slate-900 pt-2 uppercase"><span>TOTAL</span><span>${stats.total1.toLocaleString()}</span></div>
+                  <div className="flex justify-between items-center text-lg pt-4 text-slate-500"><span>tarjetas</span><span className="text-red-400">-${stats.tarjetas.toLocaleString()}</span></div>
+                  <div className="flex justify-between items-center text-lg text-slate-500"><span>egresos</span><span className="text-red-400">-${stats.egresos.toLocaleString()}</span></div>
+                  <div className="flex justify-between items-center text-lg text-slate-500 pb-2"><span>retiros</span><span className="text-red-400">-${stats.retiros.toLocaleString()}</span></div>
+                  <div className="flex justify-between items-center text-2xl font-black text-slate-900 border-t-2 border-slate-900 pt-2 uppercase tracking-tighter"><span>TOTAL</span><span className="bg-yellow-200 px-4 py-1 rounded-2xl">${stats.total2.toLocaleString()}</span></div>
                   <div className="pt-8 space-y-2 opacity-60">
-                    <div className="flex justify-between items-center text-sm">
-                      <span>total ingresos</span>
-                      <span>${stats.totalIngresos.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm">
-                      <span>total egresos</span>
-                      <span>${stats.totalEgresos.toLocaleString()}</span>
-                    </div>
+                    <div className="flex justify-between items-center text-sm"><span>total ingresos</span><span>${stats.totalIngresos.toLocaleString()}</span></div>
+                    <div className="flex justify-between items-center text-sm"><span>total egresos</span><span>${stats.totalEgresos.toLocaleString()}</span></div>
                   </div>
-                  <div className="flex justify-between items-center text-3xl font-black text-slate-900 border-t-2 border-slate-900 pt-4 uppercase tracking-tighter">
-                    <span>TOTAL</span>
-                    <span className={stats.totalFinal >= 0 ? 'text-emerald-600' : 'text-red-600'}>
-                      ${stats.totalFinal.toLocaleString()}
-                    </span>
-                  </div>
+                  <div className="flex justify-between items-center text-3xl font-black text-slate-900 border-t-2 border-slate-900 pt-4 uppercase tracking-tighter"><span>TOTAL</span><span className={stats.totalFinal >= 0 ? 'text-emerald-600' : 'text-red-600'}>${stats.totalFinal.toLocaleString()}</span></div>
                 </div>
               </div>
 
-              {/* OTROS ESTADÍSTICOS (REPOSICIÓN Y GRÁFICO) */}
               <div className="space-y-6">
                 <div className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm flex flex-col justify-center">
-                  <div className="flex items-center gap-3 mb-4">
-                    <PiggyBank className="text-blue-500" size={24}/>
-                    <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Fondo Reposición</h4>
-                  </div>
-                  <p className="text-5xl font-black text-blue-600 tracking-tighter">
-                    ${filteredHistory.filter(s => !s.is_voided).reduce((total, sale) => total + (sale.sale_items?.reduce((acc: number, item: any) => acc + ((products.find(p => p.id === item.product_id)?.cost || 0) * item.quantity), 0) || 0), 0).toLocaleString()}
-                  </p>
-                  <p className="text-[9px] font-bold text-slate-300 mt-2 italic uppercase">Costo capital de lo vendido en el período</p>
+                  <div className="flex items-center gap-3 mb-4"><PiggyBank className="text-blue-500" size={24}/><h4 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Fondo Reposición</h4></div>
+                  <p className="text-5xl font-black text-blue-600 tracking-tighter">${filteredHistory.filter(s => !s.is_voided).reduce((total, sale) => total + (sale.sale_items?.reduce((acc: number, item: any) => acc + ((products.find(p => p.id === item.product_id)?.cost || 0) * item.quantity), 0) || 0), 0).toLocaleString()}</p>
                 </div>
-
                 <div className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm">
-                   <h3 className="text-sm font-black text-slate-800 mb-6 flex items-center gap-2"><TrendingUp size={16}/> Estado de Stock</h3>
+                   <h3 className="text-sm font-black text-slate-800 mb-6 flex items-center gap-2"><TrendingUp size={16}/> Gráfico Stock</h3>
                    <div className="h-48 w-full">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={products.slice(0, 10)}>
@@ -684,53 +720,29 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
           </div>
         )}
 
-        {/* Modal de Pago Actualizado con Retiro */}
-        {showPaymentModal && (
-          <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-md">
-            <div className="bg-white rounded-[2rem] w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95">
-              <div className="flex justify-between items-center mb-5"><h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Nuevo Egreso/Retiro</h2><button onClick={() => setShowPaymentModal(false)}><X size={18}/></button></div>
-              <form onSubmit={handleSavePayment} className="space-y-3">
-                <input name="description" placeholder="Descripción (Ej: Retiro para cambio, Pago Luz...)" required className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 font-bold" />
-                <div className="grid grid-cols-2 gap-3">
-                  <input name="amount" placeholder="Monto ($)" required className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 font-black text-lg" />
-                  <select name="type" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-xs uppercase appearance-none">
-                    <option value="PROVEEDOR">Proveedor</option>
-                    <option value="SERVICIO">Servicio</option>
-                    <option value="EMPLEADO">Empleado</option>
-                    <option value="RETIRO">RETIRO CAJA</option>
-                    <option value="OTRO">Otro</option>
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <input name="date" type="date" defaultValue={new Date().toISOString().split('T')[0]} required className="w-full p-3 bg-slate-50 border rounded-xl text-[10px] outline-none" />
-                  <input name="time" type="time" defaultValue={new Date().toLocaleTimeString('es-AR', {hour: '2-digit', minute:'2-digit', hour12: false})} required className="w-full p-3 bg-slate-50 border rounded-xl text-[10px] outline-none" />
-                </div>
-                <select name="payment_method" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold uppercase text-xs">
-                  <option value="EFECTIVO">Efectivo (Caja)</option>
-                  <option value="TRANSFERENCIA">Transferencia / Banco</option>
-                </select>
-                <button type="submit" className={`w-full ${colors.primary} text-white py-4 rounded-xl font-black uppercase text-xs tracking-widest mt-2`}>REGISTRAR</button>
-              </form>
-            </div>
-          </div>
-        )}
-        
-        {/* Modales de Producto y Proveedor se mantienen igual */}
+        {/* Modal Producto Mejorado */}
         {showProductModal && (
           <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-md">
             <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-8 shadow-2xl">
               <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-black text-slate-800">{editingProduct ? 'Editar' : 'Nuevo'} Producto</h2><button onClick={() => setShowProductModal(false)}><X /></button></div>
               <form onSubmit={handleSaveProduct} className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Código (Escanee ahora)</label>
-                  <input ref={modalBarcodeRef} name="barcode" defaultValue={editingProduct?.barcode} onKeyDown={handleModalBarcodeKeyDown} className="w-full pl-6 pr-4 py-4 bg-slate-50 border rounded-2xl outline-none font-mono text-lg" placeholder="Escanee producto..." />
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Código</label>
+                  <input ref={modalBarcodeRef} name="barcode" defaultValue={editingProduct?.barcode} onKeyDown={handleModalBarcodeKeyDown} className="w-full pl-6 pr-4 py-4 bg-slate-50 border rounded-2xl outline-none font-mono text-lg" placeholder="Escanee..." />
                 </div>
                 <div className="col-span-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Nombre del Producto</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Categoría</label>
+                  <select name="product_category" defaultValue={editingProduct?.product_category} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold uppercase text-xs appearance-none">
+                    <option value="">SIN CATEGORÍA</option>
+                    {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Nombre</label>
                   <input ref={modalNameRef} name="name" defaultValue={editingProduct?.name} required className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold" />
                 </div>
-                <div><label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Stock Actual</label><input name="stock" type="number" defaultValue={editingProduct?.stock || 0} required className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-black" /></div>
-                <div><label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Alerta Stock</label><input name="min_stock" type="number" defaultValue={editingProduct?.min_stock || 5} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-black" /></div>
+                <div><label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Stock Actual</label><input name="stock" type="number" defaultValue={editingProduct?.stock || 0} required className="w-full p-4 bg-slate-50 border rounded-2xl font-black" /></div>
+                <div><label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Mínimo (Alerta)</label><input name="min_stock" type="number" defaultValue={editingProduct?.min_stock || 5} className="w-full p-4 bg-slate-50 border rounded-2xl font-black" /></div>
                 <div className="col-span-2 grid grid-cols-3 gap-4 p-5 bg-slate-50 rounded-[2rem] border">
                   <div><label className="text-[9px] font-black text-slate-400 uppercase mb-1 block">Costo ($)</label><input type="text" value={formCost} onChange={(e) => handleNumericInput(e.target.value, setFormCost)} required className="w-full p-2.5 bg-white border rounded-xl font-bold" /></div>
                   <div><label className="text-[9px] font-black text-slate-400 uppercase mb-1 block">Margen (%)</label><input type="text" value={formMargin} onChange={(e) => handleNumericInput(e.target.value, setFormMargin)} required className="w-full p-2.5 bg-white border rounded-xl font-bold" /></div>

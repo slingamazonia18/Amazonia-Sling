@@ -11,6 +11,13 @@ export interface Product {
   margin: number;
   price: number;
   category: 'PETSHOP' | 'MATEANDO';
+  product_category?: string; // Nueva columna
+}
+
+export interface ProductCategory {
+  id: string;
+  name: string;
+  system_type: 'PETSHOP' | 'MATEANDO';
 }
 
 export interface Supplier {
@@ -64,8 +71,8 @@ export interface Appointment {
 
 export interface Tariff {
   id: string;
-  category: string; // Ej: Razas chicas hasta 10 kilos
-  service_name: string; // Ej: Corte y baño
+  category: string; 
+  service_name: string; 
   total_price: number;
   groomer_price: number;
 }
