@@ -11,7 +11,7 @@ export interface Product {
   margin: number;
   price: number;
   category: 'PETSHOP' | 'MATEANDO';
-  product_category?: string; // Nueva columna
+  product_category?: string;
 }
 
 export interface ProductCategory {
@@ -31,7 +31,11 @@ export interface Payment {
   id: string;
   created_at: string;
   description: string;
-  amount: number;
+  amount: number; 
+  total_amount: number;
+  paid_amount: number;
+  remaining_amount: number;
+  status: 'COMPLETO' | 'PENDIENTE';
   date: string;
   time: string;
   type: 'PROVEEDOR' | 'SERVICIO' | 'EMPLEADO' | 'RETIRO' | 'OTRO';
