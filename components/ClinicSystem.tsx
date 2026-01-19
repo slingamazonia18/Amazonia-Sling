@@ -68,6 +68,21 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
     }
   };
 
+  const handleSaveCategory = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const input = e.currentTarget.elements.namedItem('cat_name') as HTMLInputElement;
+    const name = input.value;
+    try {
+      const { error } = await supabase.from('product_categories').insert({ 
+        name, 
+        system_type: 'CONSULTORIO'
+      });
+      if (error) throw error;
+      input.value = '';
+      fetchData();
+    } catch (err: any) { alert("Error al guardar categoría: " + err.message); }
+  };
+
   const handleSaveProduct = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -96,30 +111,8 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
       setEditingProduct(null);
       fetchData();
     } catch (err: any) { 
-      alert("Error DB al guardar insumo: " + err.message + "\n\n¿Ejecutó el script SQL en Supabase?"); 
+      alert("Error DB al guardar insumo: " + err.message); 
     }
-  };
-
-  const handleSavePayment = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    try {
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString('es-AR', { hour12: false });
-
-      const { error } = await supabase.from('payments').insert({
-        description: formData.get('description') as string,
-        amount: Number(formData.get('amount')) || 0,
-        date: formData.get('date') as string,
-        time: timeStr,
-        system_type: 'CONSULTORIO',
-        payment_method: 'EFECTIVO',
-        type: 'OTRO'
-      });
-      if (error) throw error;
-      setShowPaymentModal(false);
-      fetchData();
-    } catch (err: any) { alert("Error al guardar gasto: " + err.message); }
   };
 
   const handleSaveConsultation = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -259,33 +252,11 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
           </div>
         )}
 
-        {/* Listados */}
-        {activeTab === 'HISTORIAL CLINICO' && (
-          <div className="space-y-4">
-            <div className="flex justify-between items-center mb-6"><h2 className="text-3xl font-black text-slate-800 uppercase">Registros Médicos</h2><input type="text" placeholder="Buscar..." className="p-3 border rounded-2xl" onChange={(e) => setSearchTerm(e.target.value)} /></div>
-            {consultations.filter(c => c.pet_name.toLowerCase().includes(searchTerm.toLowerCase())).map(con => (
-              <div key={con.id} className="bg-white p-6 rounded-[2.5rem] border flex items-center justify-between group">
-                <div className="flex items-center gap-6">
-                  <div className="p-4 bg-sky-50 text-sky-600 rounded-2xl"><Dog size={32}/></div>
-                  <div>
-                    <h4 className="text-xl font-black text-slate-800 uppercase">{con.pet_name}</h4>
-                    <p className="text-xs font-bold text-slate-400">Dueño: {con.client_name} • {new Date(con.date).toLocaleDateString()}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => generateClinicalPDF(con)} className="p-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase flex items-center gap-2"><Printer size={18}/> Descargar</button>
-                  <button onClick={async () => { if(confirm("¿Borrar?")) { await supabase.from('clinical_consultations').delete().eq('id', con.id); fetchData(); } }} className="p-3 text-red-200 group-hover:text-red-500"><Trash2 size={20}/></button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
         {activeTab === 'INVENTARIO INSUMOS' && (
           <div className="space-y-6">
             <div className="flex justify-between items-end gap-4">
               <input type="text" placeholder="Buscar insumo..." className="flex-1 p-4 border rounded-3xl" onChange={(e) => setSearchTerm(e.target.value)} />
-              <button onClick={() => setShowCategoryModal(true)} className="bg-slate-100 p-4 rounded-3xl font-black text-[10px] uppercase"><Settings size={16}/></button>
+              <button onClick={() => setShowCategoryModal(true)} className="bg-slate-100 p-4 rounded-3xl font-black text-[10px] uppercase"><Settings size={16}/> CATEGORÍAS</button>
               <button onClick={() => { setEditingProduct(null); setShowProductModal(true); }} className="bg-sky-600 text-white px-8 py-4 rounded-3xl font-black uppercase text-xs"><Plus /> NUEVO INSUMO</button>
             </div>
             <div className="bg-white rounded-[3rem] border overflow-hidden shadow-sm">
@@ -317,7 +288,27 @@ const ClinicSystem: React.FC<ClinicSystemProps> = ({ onBack }) => {
         )}
       </main>
 
-      {/* Modal Insumos (Rediseñado para asegurar guardado) */}
+      {showCategoryModal && (
+        <div className="fixed inset-0 bg-black/70 z-[110] flex items-center justify-center p-4 backdrop-blur-md">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl animate-in zoom-in-95">
+            <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-black uppercase">Gestionar Categorías</h2><button onClick={() => setShowCategoryModal(false)}><X /></button></div>
+            <form onSubmit={handleSaveCategory} className="mb-6 flex gap-2">
+              <input name="cat_name" placeholder="Nueva categoría..." required className="flex-1 p-4 bg-slate-50 border rounded-2xl font-bold outline-none border-slate-100" />
+              <button type="submit" className="p-4 bg-sky-600 text-white rounded-2xl shadow-lg"><Plus /></button>
+            </form>
+            <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+              {categories.map(c => (
+                <div key={c.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <span className="font-bold text-slate-700 uppercase text-xs">{c.name}</span>
+                  <button onClick={async () => { if(confirm("¿Eliminar categoría?")) { await supabase.from('product_categories').delete().eq('id', c.id); fetchData(); } }} className="text-red-300 hover:text-red-500 transition-colors"><Trash2 size={18}/></button>
+                </div>
+              ))}
+              {categories.length === 0 && <p className="text-center py-4 text-slate-300 text-[10px] font-black uppercase italic">Sin categorías cargadas</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showProductModal && (
         <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center p-4 backdrop-blur-md">
           <div className="bg-white rounded-[3rem] w-full max-w-lg p-10 shadow-2xl animate-in zoom-in-95 overflow-hidden">

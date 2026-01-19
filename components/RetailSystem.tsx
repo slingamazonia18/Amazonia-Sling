@@ -84,7 +84,6 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     setFormPrice(Number(calculated.toFixed(2)));
   }, [formCost, formMargin]);
 
-  // Al abrir modal de edición, cargar valores
   useEffect(() => {
     if (editingProduct) {
       setFormCost(editingProduct.cost.toString());
@@ -116,6 +115,25 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
       console.error("Error fetching data:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveCategory = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const input = e.currentTarget.elements.namedItem('cat_name') as HTMLInputElement;
+    const name = input.value.trim();
+    if (!name) return;
+
+    try {
+      const { error } = await supabase.from('product_categories').insert({ 
+        name: name.toUpperCase(), 
+        system_type: type
+      });
+      if (error) throw error;
+      input.value = '';
+      fetchData();
+    } catch (err: any) { 
+      alert("Error al guardar categoría: " + err.message + "\n\nAsegúrese de que la tabla 'product_categories' existe en Supabase."); 
     }
   };
 
@@ -230,6 +248,50 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     });
   };
 
+  const generatePDF = (sale: any, items: any[]) => {
+    const doc = new jsPDF({
+      unit: 'mm',
+      format: [80, 150]
+    });
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.text("AMAZONIA " + type, 40, 10, { align: 'center' });
+    
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Fecha: ${new Date(sale.created_at).toLocaleString()}`, 10, 18);
+    doc.text(`ID: ${sale.id.slice(0, 8)}`, 10, 22);
+    doc.line(10, 24, 70, 24);
+
+    let y = 30;
+    doc.setFont("helvetica", "bold");
+    doc.text("PRODUCTO", 10, y);
+    doc.text("CANT", 45, y);
+    doc.text("SUBT", 60, y);
+    doc.setFont("helvetica", "normal");
+    
+    y += 4;
+    items.forEach(item => {
+      doc.text(item.name.substring(0, 18), 10, y);
+      doc.text(item.quantity.toString(), 45, y);
+      doc.text(`$${item.subtotal.toFixed(2)}`, 60, y);
+      y += 4;
+    });
+
+    doc.line(10, y, 70, y);
+    y += 6;
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.text(`TOTAL: $${sale.total.toFixed(2)}`, 10, y);
+    
+    y += 10;
+    doc.setFontSize(7);
+    doc.text("¡Gracias por su compra!", 40, y, { align: 'center' });
+
+    doc.save(`Venta_${sale.id.slice(0, 8)}.pdf`);
+  };
+
   const handleCheckout = async () => {
     const subtotal = cart.reduce((acc, curr) => acc + (Number(curr.product.price) * curr.qty), 0);
     const adjNum = parseFloat(adjustmentPercent.replace(',', '.')) || 0;
@@ -270,53 +332,6 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     }
   };
 
-  const handleVoidSale = async (reintegrateStock: boolean) => {
-    if (voidCode !== '1960') { alert("Código de seguridad incorrecto."); return; }
-    setLoading(true);
-    try {
-      const { error } = await supabase.from('sales').update({ is_voided: true }).eq('id', voidingSale.id);
-      if (error) throw error;
-      if (reintegrateStock) {
-        for (const item of voidingSale.sale_items) {
-          const { data: prod } = await supabase.from('products').select('stock').eq('id', item.product_id).single();
-          if (prod) await supabase.from('products').update({ stock: prod.stock + item.quantity }).eq('id', item.product_id);
-        }
-      }
-      setShowVoidModal(false); setVoidingSale(null); setVoidCode(''); fetchData();
-    } catch (err: any) { alert(err.message); }
-    finally { setLoading(false); }
-  };
-
-  const generatePDF = (saleData: any, items: any[]) => {
-    const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: [80, 150] });
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "bold");
-    if (saleData.is_voided) {
-      doc.setTextColor(255, 0, 0);
-      doc.text("VENTA ANULADA", 40, 5, { align: 'center' });
-      doc.setTextColor(0, 0, 0);
-    }
-    doc.text("AMAZONIA VETERINARIA", 40, 12, { align: 'center' });
-    doc.setFontSize(7);
-    doc.text(saleData.billing_type === 'FACTURA' ? "FACTURA TIPO B" : "TICKET NO FISCAL", 40, 16, { align: 'center' });
-    doc.setFont("helvetica", "normal");
-    doc.text(`Fecha: ${new Date(saleData.created_at).toLocaleString('es-AR')}`, 5, 22);
-    doc.line(5, 28, 75, 28);
-    let y = 32;
-    items.forEach(item => {
-      doc.text(`${item.quantity}x ${item.name.substring(0, 20)}`, 5, y);
-      doc.text(`$${item.subtotal.toFixed(2)}`, 75, y, { align: 'right' });
-      y += 5;
-    });
-    doc.line(5, y, 75, y);
-    y += 7;
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "bold");
-    doc.text("TOTAL:", 5, y);
-    doc.text(`$${saleData.total.toFixed(2)}`, 75, y, { align: 'right' });
-    doc.save(`Ticket_${saleData.id.slice(0,8)}.pdf`);
-  };
-
   const handleNumericInput = (value: string, setter: (val: string) => void) => {
     setter(value.replace(/[^0-9,.]/g, ''));
   };
@@ -329,73 +344,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
     });
   }, [products, searchTerm, categoryFilter]);
 
-  const filteredHistory = useMemo(() => {
-    const now = new Date();
-    return salesHistory.filter(sale => {
-      const saleDate = new Date(sale.created_at);
-      const isSameDay = (d1: Date, d2: Date) => d1.toDateString() === d2.toDateString();
-      switch(historyFilter) {
-        case 'HOY': return isSameDay(saleDate, now);
-        case 'SEMANA': { const weekAgo = new Date(); weekAgo.setDate(now.getDate() - 7); return saleDate >= weekAgo; }
-        case 'MES': return saleDate.getMonth() === now.getMonth() && saleDate.getFullYear() === now.getFullYear();
-        case 'AÑO': return saleDate.getFullYear() === now.getFullYear();
-        case 'CALENDARIO': return isSameDay(saleDate, new Date(selectedHistoryDate + 'T12:00:00'));
-        default: return true;
-      }
-    });
-  }, [salesHistory, historyFilter, selectedHistoryDate]);
-
-  const filteredPayments = useMemo(() => {
-    const now = new Date();
-    return payments.filter(p => {
-      const pDate = new Date(p.date + 'T12:00:00');
-      const isSameDay = (d1: Date, d2: Date) => d1.toDateString() === d2.toDateString();
-      const matchesTime = (() => {
-        switch(historyFilter) {
-          case 'HOY': return isSameDay(pDate, now);
-          case 'SEMANA': { const weekAgo = new Date(); weekAgo.setDate(now.getDate() - 7); return pDate >= weekAgo; }
-          case 'MES': return pDate.getMonth() === now.getMonth() && pDate.getFullYear() === now.getFullYear();
-          case 'AÑO': return pDate.getFullYear() === now.getFullYear();
-          case 'CALENDARIO': return isSameDay(pDate, new Date(selectedHistoryDate + 'T12:00:00'));
-          default: return true;
-        }
-      })();
-      const matchesStatus = paymentStatusFilter === 'TODOS' || p.status === paymentStatusFilter;
-      const matchesSearch = p.description.toLowerCase().includes(searchTerm.toLowerCase());
-      return matchesTime && matchesStatus && matchesSearch;
-    });
-  }, [payments, historyFilter, selectedHistoryDate, paymentStatusFilter, searchTerm]);
-
-  const monthlySummary = useMemo(() => {
-    const groups: Record<string, { year: number, month: number, purchases: number, paid: number, balance: number }> = {};
-    payments.forEach(p => {
-      const d = new Date(p.date + 'T12:00:00');
-      const year = d.getFullYear();
-      const month = d.getMonth();
-      const key = `${year}-${month}`;
-      if (!groups[key]) { groups[key] = { year, month, purchases: 0, paid: 0, balance: 0 }; }
-      groups[key].purchases += Number(p.total_amount || p.amount || 0);
-      groups[key].paid += Number(p.paid_amount || p.amount || 0);
-      groups[key].balance += Number(p.remaining_amount || 0);
-    });
-    return Object.values(groups).sort((a, b) => b.year !== a.year ? b.year - a.year : b.month - a.month);
-  }, [payments]);
-
   const subtotalCart = cart.reduce((a, c) => a + (Number(c.product.price) * c.qty), 0);
-
-  const stats = useMemo(() => {
-    const activeSales = filteredHistory.filter(s => !s.is_voided);
-    const fondo = parseFloat(cashDrawerFund.replace(',', '.')) || 0;
-    const ventaTotal = activeSales.reduce((a, s) => a + Number(s.total), 0);
-    const total1 = fondo + ventaTotal;
-    const tarjetas = activeSales.filter(s => s.payment_method !== 'EFECTIVO').reduce((a, s) => a + Number(s.total), 0);
-    const egresos = filteredPayments.filter(p => p.type !== 'RETIRO').reduce((a, p) => a + (p.paid_amount || p.amount), 0);
-    const retiros = filteredPayments.filter(p => p.type === 'RETIRO').reduce((a, p) => a + (p.paid_amount || p.amount), 0);
-    const total2 = total1 - tarjetas - egresos - retiros;
-    return { fondo, ventaTotal, total1, tarjetas, egresos, retiros, total2 };
-  }, [filteredHistory, filteredPayments, cashDrawerFund]);
-
-  const stockAlerts = useMemo(() => products.filter(p => p.stock <= p.min_stock), [products]);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col relative">
@@ -438,6 +387,30 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
         </div>
       )}
 
+      {showCategoryModal && (
+        <div className="fixed inset-0 bg-black/70 z-[120] flex items-center justify-center p-4 backdrop-blur-md">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl animate-in zoom-in-95">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-black text-slate-800 uppercase">Gestionar Categorías</h2>
+              <button onClick={() => setShowCategoryModal(false)}><X size={20}/></button>
+            </div>
+            <form onSubmit={handleSaveCategory} className="mb-6 flex gap-2">
+              <input name="cat_name" placeholder="Nueva categoría..." required className="flex-1 p-4 bg-slate-50 border rounded-2xl font-bold outline-none border-slate-100" />
+              <button type="submit" className={`p-4 ${colors.primary} text-white rounded-2xl shadow-lg`}><Plus /></button>
+            </form>
+            <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+              {categories.map(c => (
+                <div key={c.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <span className="font-bold text-slate-700 uppercase text-xs">{c.name}</span>
+                  <button onClick={async () => { if(confirm("¿Eliminar categoría?")) { await supabase.from('product_categories').delete().eq('id', c.id); fetchData(); } }} className="text-red-300 hover:text-red-500 transition-colors"><Trash2 size={18}/></button>
+                </div>
+              ))}
+              {categories.length === 0 && <p className="text-center py-4 text-slate-300 text-[10px] font-black uppercase italic">Sin categorías cargadas</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showPaymentModal && (
         <div className="fixed inset-0 bg-black/70 z-[110] flex items-center justify-center p-4 backdrop-blur-md">
           <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl animate-in zoom-in-95">
@@ -470,7 +443,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
         </div>
       )}
 
-      {/* Navegación y Cuerpo (Resto del componente permanece igual pero con mejoras de carga) */}
+      {/* Navegación y Cuerpo */}
       <nav className={`${colors.primary} text-white px-6 py-4 flex items-center justify-between shadow-lg sticky top-0 z-50`}>
         <div className="flex items-center gap-4">
           <button onClick={onBack} className="p-2 hover:bg-white/20 rounded-full transition-colors"><ArrowLeft size={24} /></button>
@@ -518,18 +491,16 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
                   ))}
                 </tbody>
               </table>
-              {filteredInventory.length === 0 && <div className="p-20 text-center text-slate-300 font-black uppercase italic tracking-widest">No hay productos</div>}
             </div>
           </div>
         )}
 
-        {/* Las demás pestañas (VENDER, HISTORIAL, etc.) usan fetchData que ha sido optimizado con console.warn para debugging */}
         {activeTab === 'VENDER' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full animate-in fade-in">
             <div className="space-y-8 flex flex-col h-full">
               <div className="bg-slate-900 p-6 rounded-[2.5rem] shadow-xl text-white">
-                <form onSubmit={handleBarcodeSubmit} className="relative">
-                  <Barcode className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={24} />
+                <form onSubmit={(e) => { e.preventDefault(); handleBarcodeSubmit(e); }} className="relative">
+                  <Scan className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={24} />
                   <input ref={barcodeInputRef} type="text" value={barcodeInput} onChange={(e) => setBarcodeInput(e.target.value)} placeholder="Escanee código..." className="w-full pl-14 pr-4 py-5 rounded-2xl bg-white/10 border border-white/20 text-white text-xl font-bold outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-700" />
                 </form>
               </div>
@@ -566,7 +537,7 @@ const RetailSystem: React.FC<RetailSystemProps> = ({ type, onBack }) => {
         )}
       </main>
 
-      {/* Modales Genéricos */}
+      {/* Checkout Modal */}
       {showCheckoutModal && (
         <div className="fixed inset-0 bg-black/70 z-[120] flex items-center justify-center p-4 backdrop-blur-md">
           <div className="bg-white rounded-[2.5rem] w-full max-sm p-6 shadow-2xl animate-in zoom-in-95">
