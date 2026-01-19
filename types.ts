@@ -10,21 +10,21 @@ export interface Product {
   cost: number;
   margin: number;
   price: number;
-  category: 'PETSHOP' | 'MATEANDO';
+  category: 'PETSHOP' | 'MATEANDO' | 'CONSULTORIO';
   product_category?: string;
 }
 
 export interface ProductCategory {
   id: string;
   name: string;
-  system_type: 'PETSHOP' | 'MATEANDO';
+  system_type: 'PETSHOP' | 'MATEANDO' | 'CONSULTORIO';
 }
 
 export interface Supplier {
   id: string;
   name: string;
   whatsapp: string;
-  category: 'PETSHOP' | 'MATEANDO';
+  category: 'PETSHOP' | 'MATEANDO' | 'CONSULTORIO';
 }
 
 export interface Payment {
@@ -41,19 +41,9 @@ export interface Payment {
   date: string;
   time: string;
   type: 'PROVEEDOR' | 'SERVICIO' | 'EMPLEADO' | 'RETIRO' | 'OTRO';
-  system_type: 'PETSHOP' | 'MATEANDO';
+  system_type: 'PETSHOP' | 'MATEANDO' | 'CONSULTORIO';
   payment_method: string;
   recipient_name?: string;
-}
-
-export interface ClinicPurchase {
-  id: string;
-  description: string;
-  amount: number;
-  category: string;
-  supplier: string;
-  date: string;
-  created_at: string;
 }
 
 export interface Sale {
@@ -62,7 +52,7 @@ export interface Sale {
   total: number;
   payment_method: string;
   billing_type: 'FACTURA' | 'COMPROBANTE';
-  system_type: 'PETSHOP' | 'MATEANDO';
+  system_type: 'PETSHOP' | 'MATEANDO' | 'CONSULTORIO';
   sale_items?: SaleItem[];
   is_voided?: boolean;
 }
